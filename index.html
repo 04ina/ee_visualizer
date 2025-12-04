@@ -1,0 +1,908 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PostgreSQL Path Tree + Best Plan</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+    }
+    #main-container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+    #tree-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      min-width: 300px;
+    }
+    #cy {
+      width: 100%;
+      height: 100%;
+      background-color: #fafafa;
+    }
+    #vertical-resizer {
+      width: 6px;
+      background: #ccc;
+      cursor: col-resize;
+      user-select: none;
+    }
+    #right-container {
+      display: flex;
+      flex-direction: column;
+      width: 50%;
+      min-width: 300px;
+    }
+    #explain-container {
+      flex: none;
+      height: 40vh;
+      padding: 10px;
+      background: #f8f8f8;
+      overflow: auto;
+      border-bottom: 1px solid #ddd;
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      cursor: pointer;
+    }
+    #explain-container .path-line {
+      padding: 2px 0;
+    }
+    #explain-container .path-line:hover {
+      background: #e0e0e0;
+    }
+    #explain-container .selected {
+      background-color: #cce6ff !important;
+    }
+    #horizontal-resizer {
+      height: 6px;
+      background: #ccc;
+      cursor: row-resize;
+      user-select: none;
+      flex: none;
+    }
+    #empty-container {
+      flex: 1;
+      background: #f0f0f0;
+      overflow: auto;
+      padding: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #eee;
+      position: sticky;
+      top: 0;
+      cursor: pointer;
+    }
+    th.sort-asc::after {
+      content: ' ↑';
+      color: #000;
+    }
+    th.sort-desc::after {
+      content: ' ↓';
+      color: #000;
+    }
+    .control-button {
+      position: absolute;
+      top: 10px;
+      z-index: 10;
+      padding: 6px 12px;
+      font-size: 14px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .control-button:hover {
+      background: #f5f5f5;
+    }
+    #reset-view { left: 10px; }
+    #collapse-all { left: 130px; }
+    #clear-filters { left: 274px; }
+    .highlighted {
+      background-color: #ffcc00 !important;
+      border-color: #ff9900 !important;
+      border-width: 2px !important;
+    }
+    .selected-row {
+      background-color: #cce6ff !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="main-container">
+    <div id="tree-container">
+      <div id="cy"></div>
+      <button id="reset-view" class="control-button">Сбросить вид</button>
+      <button id="collapse-all" class="control-button">Свернуть дерево</button>
+      <button id="clear-filters" class="control-button">Сбросить фильтры</button>
+    </div>
+    <div id="vertical-resizer"></div>
+    <div id="right-container">
+      <div id="explain-container">Загрузка...</div>
+      <div id="horizontal-resizer"></div>
+      <div id="empty-container">Кликните на строку в EXPLAIN, чтобы увидеть альтернативные пути.</div>
+    </div>
+  </div>
+
+  <script src="dagre.min.js"></script>
+  <script src="cytoscape.min.js"></script>
+  <script src="cytoscape-dagre.min.js"></script>
+
+  <script>
+    let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters;
+    let allBestRoots = [];
+    let currentSelectedPathId = null;
+
+    function isPathVisible(pathIdStr) {
+      const path = nodeMap.get(pathIdStr);
+      if (!path) return false;
+      return expanded.has(`subquery-${path._subKey}`) &&
+             expanded.has(`level-${path._levelKey}`) &&
+             expanded.has(`relation-${path._relKey}`);
+    }
+
+    function buildElements() {
+      const nodes = [];
+      const edges = [];
+
+      for (const item of subqueryNodes) {
+        if (!item.id) continue;
+        nodes.push({
+          group: 'nodes',
+          data: {
+            id: item.id,
+            label: item.label
+          },
+          classes: 'subquery-group'
+        });
+      }
+
+      for (const item of subqueryNodes) {
+        const subId = item.id;
+        if (!expanded.has(subId)) continue;
+
+        for (const levelItem of levelNodes.values()) {
+          const parts = levelItem.id.split('-');
+          if (parts.length < 3 || parts[0] !== 'level') continue;
+          const subqueryPart = parts[1];
+          if (`subquery-${subqueryPart}` !== subId) continue;
+
+          nodes.push({
+            group: 'nodes',
+            data: {
+              id: levelItem.id,
+              label: levelItem.label,
+              parent: subId
+            },
+            classes: 'level-group'
+          });
+
+          if (!expanded.has(levelItem.id)) continue;
+
+          for (const relItem of relationNodes.values()) {
+            const relParts = relItem.id.split('-');
+            if (relParts.length < 4 || relParts[0] !== 'relation') continue;
+            const relSub = relParts[1];
+            const relLevel = relParts[2];
+            const expectedLevelId = `level-${relSub}-${relLevel}`;
+            if (expectedLevelId !== levelItem.id) continue;
+
+            nodes.push({
+              group: 'nodes',
+              data: {
+                id: relItem.id,
+                label: relItem.label,
+                parent: levelItem.id
+              },
+              classes: 'relation-group'
+            });
+
+            if (!expanded.has(relItem.id)) continue;
+
+            const currentFilter = relationFilters.get(relItem.id) || '';
+            for (const [pathIdStr, path] of nodeMap.entries()) {
+              if (path._relKey !== relItem.id.replace('relation-', '')) continue;
+              if (currentFilter && path.path_type.toLowerCase().indexOf(currentFilter.toLowerCase()) === -1) continue;
+
+              let label = `${path.path_type}\n(id:${path.path_id})`;
+              if (path.startup_cost !== undefined && path.total_cost !== undefined) {
+                label += `\ncost: ${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)}`;
+              }
+              if (path.rows !== undefined) {
+                label += `\nrows: ${Math.round(path.rows)}`;
+              }
+
+              nodes.push({
+                group: 'nodes',
+                data: {
+                  id: pathIdStr,
+                  label: label,
+                  parent: relItem.id
+                },
+                classes: 'path-node'
+              });
+            }
+          }
+        }
+      }
+
+      for (const [subKey, levelsSet] of levelOrder) {
+        const levels = Array.from(levelsSet).sort((a, b) => a - b);
+        for (let i = 0; i < levels.length - 1; i++) {
+          const curId = `level-${subKey}-L${levels[i]}`;
+          const nextId = `level-${subKey}-L${levels[i + 1]}`;
+          if (expanded.has(curId) && expanded.has(nextId)) {
+            edges.push({
+              group: 'edges',
+              data: {
+                id: `edge-level-${curId}-${nextId}`,
+                source: curId,
+                target: nextId
+              },
+              classes: 'level-order-edge'
+            });
+          }
+        }
+      }
+
+      for (const [srcId, path] of nodeMap.entries()) {
+        if (!isPathVisible(srcId) || !Array.isArray(path.child_paths)) continue;
+        for (const childId of path.child_paths) {
+          const childIdStr = String(childId);
+          if (isPathVisible(childIdStr)) {
+            edges.push({
+              group: 'edges',
+              data: {
+                id: `edge-path-${srcId}-${childIdStr}`,
+                source: srcId,
+                target: childIdStr
+              }
+            });
+          }
+        }
+      }
+
+      return [...nodes, ...edges];
+    }
+
+
+    function refreshGraph() {
+      const elements = buildElements();
+      cy.json({ elements });
+      cy.layout({
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: 40,
+        edgeSep: 40,
+        rankSep: 80,
+        animate: true,
+        animationDuration: 300,
+        fit: true 
+      }).run();
+
+      if (currentSelectedPathId) {
+        cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+        // Подсвечиваем заново
+        const path = nodeMap.get(currentSelectedPathId);
+        if (path) {
+          const idsToTry = [
+            currentSelectedPathId,
+            `relation-${path._relKey}`,
+            `level-${path._levelKey}`,
+            `subquery-${path._subKey}`
+          ];
+          for (const id of idsToTry) {
+            const el = cy.getElementById(id);
+            if (el.length > 0) {
+              el.addClass('selected-in-tree');
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    function findAllBestPlans() {
+      allBestRoots = [];
+
+      for (const [subKey, levelsSet] of levelOrder) {
+        let maxRelId = -1;
+        let targetRelKey = null;
+
+        for (const [relKey] of relationNodes.entries()) {
+          const parts = relKey.split('-'); // "1-L0-R4"
+          if (parts.length === 3 && parts[0] === subKey && parts[1] === 'L0' && parts[2].startsWith('R')) {
+            const relIdNum = parseInt(parts[2].substring(1), 10);
+            if (!isNaN(relIdNum) && relIdNum > maxRelId) {
+              maxRelId = relIdNum;
+              targetRelKey = relKey;
+            }
+          }
+        }
+
+        if (!targetRelKey) continue;
+
+        const targetPaths = [];
+        for (const [pathIdStr, path] of nodeMap.entries()) {
+          if (path._relKey === targetRelKey) {
+            if (path.total_cost === undefined) {
+              console.warn('Путь без total_cost, пропускаем:', path);
+              continue;
+            }
+            targetPaths.push(path);
+          }
+        }
+
+        if (targetPaths.length === 0) continue;
+
+        const best = targetPaths.reduce((a, b) => a.total_cost < b.total_cost ? a : b);
+        allBestRoots.push(best);
+      }
+    }
+
+    function renderAllBestPlans() {
+      if (allBestRoots.length === 0) {
+        document.getElementById('explain-container').textContent = "Лучшие планы не найдены.";
+        return;
+      }
+
+      const lines = []; // { text, pathId }
+
+      allBestRoots.forEach((root, idx) => {
+        if (idx > 0) lines.push({ text: "", pathId: null });
+
+        const collectLines = (path, depth) => {
+          const idStr = String(path.path_id);
+          const indent = "  ".repeat(depth);
+          let line = `${indent}-> ${path.path_type}`;
+          if (path.rel_name) {
+            line += ` on ${path.rel_name}`;
+          }
+          if (path.total_cost !== undefined) {
+            line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)})`;
+          }
+          lines.push({ text: line, pathId: idStr });
+
+          if (Array.isArray(path.child_paths)) {
+            for (const childId of path.child_paths) {
+              const child = nodeMap.get(String(childId));
+              if (child) {
+                collectLines(child, depth + 1);
+              }
+            }
+          }
+        };
+
+        collectLines(root, 0);
+      });
+
+      const explainContainer = document.getElementById('explain-container');
+      explainContainer.innerHTML = lines.map(({ text, pathId }) => {
+        if (pathId) {
+          return `<div class="path-line" data-path-id="${pathId}">${text}</div>`;
+        }
+        return `<div>${text}</div>`;
+      }).join('');
+
+      explainContainer.querySelectorAll('.path-line').forEach(el => {
+        el.addEventListener('click', () => {
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+          cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+
+          el.classList.add('selected');
+          const pathId = el.getAttribute('data-path-id');
+          currentSelectedPathId = pathId;
+          showAlternativePaths(pathId);
+          highlightPathInTree(pathId);
+        });
+      });
+    }
+
+    function showAlternativePaths(clickedPathId) {
+      const clickedPath = nodeMap.get(clickedPathId);
+      if (!clickedPath) return;
+
+      const relKey = clickedPath._relKey;
+      const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
+
+      const container = document.getElementById('empty-container');
+
+      if (alternatives.length === 0) {
+        container.innerHTML = 'Альтернативные пути не найдены.';
+        return;
+      }
+
+      const allKeys = new Set();
+      for (const p of alternatives) {
+        for (const key in p) {
+          if (!key.startsWith('_')) {
+            allKeys.add(key);
+          }
+        }
+      }
+      const columns = Array.from(allKeys).sort();
+
+      let tableHTML = `
+        <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..." 
+              style="width:100%; padding:6px 10px; margin-bottom:10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
+        <div id="table-wrapper"; max-height:100%;">
+          <table><thead><tr>
+      `;
+
+      columns.forEach(col => {
+        tableHTML += `<th data-column="${col}">${col}</th>`;
+      });
+      tableHTML += '</tr></thead><tbody>';
+
+      alternatives.forEach(p => {
+        const isSelected = String(p.path_id) === clickedPathId;
+        tableHTML += `<tr data-path-id="${p.path_id}"${isSelected ? ' class="selected-row"' : ''}>`;
+        columns.forEach(col => {
+          const value = p[col] !== undefined ? p[col] : '';
+          const displayValue = typeof value === 'number' ? value.toFixed(2) : String(value);
+          tableHTML += `<td>${displayValue}</td>`;
+        });
+        tableHTML += '</tr>';
+      });
+
+      tableHTML += '</tbody></table></div>';
+
+      container.innerHTML = tableHTML;
+
+      // --- Обработчик поиска ---
+      const searchInput = document.getElementById('table-search');
+      const tableWrapper = document.getElementById('table-wrapper');
+      const rows = tableWrapper.querySelectorAll('tbody tr');
+
+      searchInput.addEventListener('input', () => {
+        const term = searchInput.value.toLowerCase().trim();
+        rows.forEach(row => {
+          let found = term === '';
+          if (!found) {
+            const cells = row.querySelectorAll('td');
+            for (const cell of cells) {
+              if (cell.textContent.toLowerCase().includes(term)) {
+                found = true;
+                break;
+              }
+            }
+          }
+          row.style.display = found ? '' : 'none';
+        });
+      });
+
+      document.querySelectorAll('#table-wrapper th').forEach(th => {
+        th.addEventListener('click', () => {
+          const column = th.getAttribute('data-column');
+          const currentSort = th.classList.contains('sort-asc') ? 'asc' :
+                              th.classList.contains('sort-desc') ? 'desc' : null;
+          const newSort = currentSort === 'asc' ? 'desc' : 'asc';
+
+          document.querySelectorAll('#table-wrapper th').forEach(t => {
+            t.classList.remove('sort-asc', 'sort-desc');
+          });
+          th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+
+          const tbody = th.closest('table').querySelector('tbody');
+          const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+
+          visibleRows.sort((a, b) => {
+            const aValue = a.cells[th.cellIndex].textContent.trim();
+            const bValue = b.cells[th.cellIndex].textContent.trim();
+
+            let aNum = parseFloat(aValue);
+            let bNum = parseFloat(bValue);
+
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+              return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+            } else {
+              return newSort === 'asc'
+                ? aValue.localeCompare(bValue)
+                : bValue.localeCompare(aValue);
+            }
+          });
+
+          visibleRows.forEach(row => tbody.appendChild(row));
+        });
+      });
+
+      // Клик по строке таблицы 
+      document.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
+        row.addEventListener('click', () => {
+          const pathId = row.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Сброс выделения
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+
+          // Выделение в EXPLAIN
+          const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+          if (explainLine) explainLine.classList.add('selected');
+
+          // Выделение в таблице
+          row.classList.add('selected-row');
+
+          currentSelectedPathId = pathId;
+          highlightPathInTree(pathId);
+        });
+      });
+    }
+
+    function highlightPathInTree(pathId) {
+      // Сброс старой подсветки
+      cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+
+      const path = nodeMap.get(pathId);
+      if (!path) return;
+
+      const subqueryId = `subquery-${path._subKey}`;
+      const levelId = `level-${path._levelKey}`;
+      const relationId = `relation-${path._relKey}`;
+
+      // Проверяем в порядке приоритета: путь -> отношение -> уровень -> подзапрос
+      let targetId = null;
+
+      if (cy.getElementById(pathId).length > 0) {
+        targetId = pathId;
+      } else if (cy.getElementById(relationId).length > 0) {
+        targetId = relationId;
+      } else if (cy.getElementById(levelId).length > 0) {
+        targetId = levelId;
+      } else if (cy.getElementById(subqueryId).length > 0) {
+        targetId = subqueryId;
+      }
+
+      if (targetId) {
+        cy.getElementById(targetId).addClass('selected-in-tree');
+      }
+    }
+
+    function makeResizable() {
+      const vResizer = document.getElementById('vertical-resizer');
+      const hResizer = document.getElementById('horizontal-resizer');
+      let resizing = null;
+
+      // Вертикальный ресайзер (между деревом и правой панелью)
+      vResizer.addEventListener('mousedown', e => {
+        resizing = 'v';
+        e.preventDefault();
+      });
+
+      // Горизонтальный ресайзер (между EXPLAIN и таблицей)
+      hResizer.addEventListener('mousedown', e => {
+        resizing = 'h';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (!resizing) return;
+
+        if (resizing === 'v') {
+          // Вертикальное деление: дерево | [EXPLAIN + таблица]
+          const main = document.getElementById('main-container');
+          const tree = document.getElementById('tree-container');
+          const right = document.getElementById('right-container');
+          const pct = (e.clientX / main.offsetWidth) * 100;
+          tree.style.width = pct + '%';
+          right.style.width = (100 - pct) + '%';
+        } else if (resizing === 'h') {
+          // Горизонтальное деление: EXPLAIN | таблица
+          const right = document.getElementById('right-container');
+          const explain = document.getElementById('explain-container');
+          const empty = document.getElementById('empty-container');
+
+          // Получаем позицию курсора относительно правой панели
+          const rect = right.getBoundingClientRect();
+          const offsetY = e.clientY - rect.top;
+
+          const newHeight = Math.max(100, Math.min(offsetY, rect.height - 100));
+
+          explain.style.height = newHeight + 'px';
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        resizing = null;
+      });
+    }
+
+    fetch('data.json?' + Date.now())
+      .then(res => res.json())
+      .then(data => {
+        cytoscape.use(cytoscapeDagre);
+
+        nodeMap = new Map();
+        subqueryNodes = [];
+        levelNodes = new Map();
+        relationNodes = new Map();
+        levelOrder = new Map();
+        expanded = new Map();
+        relationFilters = new Map();
+
+        const queries = Object.values(data.queries);
+        if (queries.length === 0) throw new Error('Нет запросов в data.json');
+        const query = queries[0];
+
+        for (const [subqueryId, subquery] of Object.entries(query.subqueries)) {
+          const subKey = subqueryId;
+          subqueryNodes.push({ id: `subquery-${subKey}`, label: `SubQ ${subqueryId}` });
+
+          if (!levelOrder.has(subKey)) {
+            levelOrder.set(subKey, new Set());
+          }
+
+          for (const [levelStr, levelObj] of Object.entries(subquery.levels)) {
+            const level = parseInt(levelStr, 10);
+            levelOrder.get(subKey).add(level);
+            const levelKey = `${subKey}-L${level}`;
+            levelNodes.set(levelKey, { id: `level-${levelKey}`, label: `level=${level}` });
+
+            for (const [relId, relObj] of Object.entries(levelObj.relations)) {
+              const relKey = `${levelKey}-R${relId}`;
+              relationNodes.set(relKey, { id: `relation-${relKey}`, label: `rel=${relObj.name}` });
+
+            for (const path of relObj.paths) {
+              const id = String(path.path_id);
+              nodeMap.set(id, {
+                ...path,
+                _relKey: relKey,
+                _levelKey: levelKey,
+                _subKey: subKey,
+                rel_name: relObj.name  
+              });
+            }
+            }
+          }
+        }
+
+        findAllBestPlans();
+        renderAllBestPlans();
+
+        cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements: [],
+          style: [
+            {
+              selector: 'node.path-node',
+              style: {
+                'shape': 'rectangle',
+                'background-color': '#e0e0e0',
+                'label': 'data(label)',
+                'text-valign': 'center',
+                'text-halign': 'center',
+                'color': '#000',
+                'font-size': '10px',
+                'text-wrap': 'wrap',
+                'text-max-width': '80px',
+                'width': '90px',
+                'height': '50px',
+                'border-width': 1,
+                'border-color': '#999'
+              }
+            },
+            {
+              selector: 'node.level-group, node.relation-group, node.subquery-group',
+              style: {
+                'shape': 'roundrectangle',
+                'label': 'data(label)',
+                'text-valign': 'top',
+                'text-halign': 'right',
+                'text-margin-x': '-8px',
+                'text-margin-y': '4px',
+                'color': '#000',
+                'font-size': '11px',
+                'font-weight': 'bold',
+                'background-opacity': 0.15
+              }
+            },
+            {
+              selector: 'node.level-group',
+              style: {
+                'border-width': 1,
+                'border-style': 'solid',
+                'border-color': '#c00'
+              }
+            },
+            {
+              selector: 'node.relation-group',
+              style: {
+                'background-opacity': 0.2,
+                'border-width': 1,
+                'border-style': 'dashed',
+                'border-color': '#999'
+              }
+            },
+            {
+              selector: 'node.subquery-group',
+              style: {
+                'border-width': 2,
+                'border-style': 'dotted',
+                'border-color': '#666'
+              }
+            },
+            {
+              selector: 'edge',
+              style: {
+                'width': 1,
+                'line-color': '#666',
+                'target-arrow-shape': 'triangle',
+                'target-arrow-color': '#666',
+                'curve-style': 'bezier'
+              }
+            },
+            {
+              selector: 'edge.level-order-edge',
+              style: {
+                'width': 1,
+                'line-color': '#aaa',
+                'target-arrow-shape': 'none',
+                'opacity': 0.5,
+                'line-style': 'dotted'
+              }
+            },
+            {
+              selector: '.highlighted',
+              style: {
+                'background-color': '#ffcc00',
+                'border-color': '#ff9900',
+                'border-width': 2
+              }
+            },
+            {
+              selector: '.highlighted-edge',
+              style: {
+                'line-color': '#ff9900',
+                'target-arrow-color': '#ff9900',
+                'width': 2
+              }
+            },
+            {
+              selector: '.selected-in-tree',
+              style: {
+                'background-color': '#cce6ff',
+                'border-color': '#3399ff',
+                'border-width': 2
+              }
+            }
+          ],
+          layout: { name: 'null' }
+        });
+
+        refreshGraph();
+
+        document.getElementById('reset-view').addEventListener('click', () => {
+          cy.elements('.highlighted, .highlighted-edge').removeClass('highlighted highlighted-edge');
+          cy.fit();
+        });
+
+
+        document.getElementById('collapse-all').addEventListener('click', () => {
+          // Полностью очищаем expanded -- всё сворачивается
+          expanded.clear();
+          // Сбрасываем подсветку
+          cy.elements('.highlighted, .highlighted-edge, .selected-in-tree')
+            .removeClass('highlighted highlighted-edge selected-in-tree');
+          currentSelectedPathId = null;
+          // Обновляем граф
+          refreshGraph();
+        });
+
+        document.getElementById('clear-filters').addEventListener('click', () => {
+          relationFilters.clear();
+          refreshGraph();
+        });
+
+        cy.on('tap', 'node.subquery-group, node.level-group', function (evt) {
+          const id = evt.target.id();
+          if (expanded.has(id)) {
+            expanded.delete(id);
+          } else {
+            expanded.set(id, true);
+          }
+          refreshGraph();
+        });
+
+        cy.on('tap', 'node.relation-group', function (evt) {
+          const id = evt.target.id();
+          const originalEvent = evt.originalEvent;
+          const isFilterMode = originalEvent.ctrlKey || originalEvent.metaKey;
+
+          if (isFilterMode) {
+            const currentFilter = relationFilters.get(id) || '';
+            const newFilter = prompt(
+              'Фильтр по path_type (оставьте пустым для отключения):\n(например: SeqScan, IndexScan, NestLoop)',
+              currentFilter
+            );
+
+            if (newFilter !== null) {
+              const trimmed = newFilter.trim();
+              if (trimmed === '') {
+                relationFilters.delete(id);
+              } else {
+                relationFilters.set(id, trimmed);
+              }
+              refreshGraph();
+            }
+          } else {
+            if (expanded.has(id)) {
+              expanded.delete(id);
+            } else {
+              expanded.set(id, true);
+            }
+            refreshGraph();
+          }
+        });
+
+        function collectDescendants(nodeId, visited = new Set()) {
+          const idStr = String(nodeId);
+          if (visited.has(idStr)) return visited;
+          visited.add(idStr);
+          const node = nodeMap.get(idStr);
+          if (node && Array.isArray(node.child_paths)) {
+            for (const child of node.child_paths) {
+              collectDescendants(String(child), visited);
+            }
+          }
+          return visited;
+        }
+
+        cy.on('tap', 'node.path-node', function (evt) {
+          const nodeId = evt.target.id();
+          const descendants = collectDescendants(nodeId);
+          cy.elements('.highlighted, .highlighted-edge').removeClass('highlighted highlighted-edge');
+
+          descendants.forEach(id => {
+            const el = cy.getElementById(id);
+            if (el.length > 0) el.addClass('highlighted');
+          });
+
+          const descendantSet = new Set(descendants);
+          cy.edges().forEach(edge => {
+            const src = edge.source().id();
+            if (descendantSet.has(src)) {
+              edge.addClass('highlighted-edge');
+            }
+          });
+        });
+
+        cy.on('tap', (evt) => {
+          if (evt.target === cy) {
+            cy.elements('.highlighted, .highlighted-edge').removeClass('highlighted highlighted-edge');
+          }
+        });
+
+        makeResizable();
+      })
+      .catch(err => {
+        console.error('Failed to load data.json:', err);
+        alert('Ошибка загрузки data.json: ' + err.message);
+        document.getElementById('explain-container').textContent = 'Ошибка загрузки данных.';
+      });
+  </script>
+</body>
+</html>
