@@ -4,9 +4,11 @@ import sys
 
 def main(csv_path):
     COLUMNS = [
-        "query_id", "subquery_type", "subquery_id", "rel_id", "path_id",
+        "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
         "path_type", "child_paths", "startup_cost", "total_cost", "rows",
-        "is_del", "rel_name", "indexoid", "level"
+        "width", "rel_name", "rel_alias", "indexoid", "level",
+        "add_path_result", "displaced_by", "cost_cmp", "pathkeys_cmp",
+        "bms_cmp", "rows_cmp", "parallel_safe_cmp"
     ]
 
     paths = []
@@ -29,21 +31,31 @@ def main(csv_path):
                     return target_type(val)
 
                 path_entry = {
+
                     "query_id": parse_field(record["query_id"], int),
                     "subquery_id": parse_field(record["subquery_id"], int) or 1,
+                    "subquery_level": parse_field(record["subquery_level"], int),
                     "level": level,
                     "rel_id": parse_field(record["rel_id"], int),
                     "path_id": parse_field(record["path_id"], int),
-                    "path_type": record["path_type"],
+                    "path_type": clean(record["path_type"]),
                     "child_paths": [] if record["child_paths"] == '\\N' else [
                         int(x.strip()) for x in record["child_paths"].strip("{}").split(",") if x.strip()
                     ],
                     "rel_name": clean(record["rel_name"]) or f"rel_{record['rel_id']}",
+                    "rel_alias": clean(record["rel_alias"]),
                     "startup_cost": parse_field(record["startup_cost"], float),
                     "total_cost": parse_field(record["total_cost"], float),
-                    "rows": parse_field(record["rows"], float),
-                    "is_del": parse_field(record["is_del"], lambda x: x == 't'),
+                    "rows": parse_field(record["rows"], int),
+                    "width": parse_field(record["width"], int),
                     "indexoid": parse_field(record["indexoid"], int),
+                    "add_path_result": clean(record["add_path_result"]),
+                    "displaced_by": parse_field(record["displaced_by"], int),
+                    "cost_cmp": clean(record["cost_cmp"]),
+                    "pathkeys_cmp": clean(record["pathkeys_cmp"]),
+                    "bms_cmp": clean(record["bms_cmp"]),
+                    "rows_cmp": clean(record["rows_cmp"]),
+                    "parallel_safe_cmp": clean(record["parallel_safe_cmp"]),
                 }
                 paths.append(path_entry)
             except Exception as e:
@@ -71,6 +83,7 @@ def main(csv_path):
         if rid not in relations:
             relations[rid] = {
                 "name": p["rel_name"],
+                "alias": p["rel_alias"],
                 "paths": []
             }
         relations[rid]["paths"].append(p)

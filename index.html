@@ -377,12 +377,17 @@
         const collectLines = (path, depth) => {
           const idStr = String(path.path_id);
           const indent = "  ".repeat(depth);
+
           let line = `${indent}-> ${path.path_type}`;
           if (path.rel_name) {
-            line += ` on ${path.rel_name}`;
-          }
+            if (path.rel_alias && path.rel_alias !== path.rel_name) {
+              line += ` on ${path.rel_name} ${path.rel_alias}`;
+            } else {
+              line += ` on ${path.rel_name}`;
+            }
+          }  
           if (path.total_cost !== undefined) {
-            line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)})`;
+            line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
           }
           lines.push({ text: line, pathId: idStr });
 
@@ -430,11 +435,18 @@
       const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
 
       const container = document.getElementById('empty-container');
-
       if (alternatives.length === 0) {
         container.innerHTML = 'Альтернативные пути не найдены.';
         return;
       }
+
+      const COLUMN_ORDER = [
+        "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
+        "path_type", "rel_name", "rel_alias", "indexoid", "level",
+        "child_paths", "startup_cost", "total_cost", "rows", "width",
+        "add_path_result", "displaced_by",
+        "cost_cmp", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
+      ];
 
       const allKeys = new Set();
       for (const p of alternatives) {
@@ -444,7 +456,10 @@
           }
         }
       }
-      const columns = Array.from(allKeys).sort();
+
+      const columns = COLUMN_ORDER.filter(col => allKeys.has(col));
+      const extraKeys = Array.from(allKeys).filter(k => !COLUMN_ORDER.includes(k));
+      const finalColumns = [...columns, ...extraKeys];
 
       let tableHTML = `
         <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..." 
@@ -463,7 +478,17 @@
         tableHTML += `<tr data-path-id="${p.path_id}"${isSelected ? ' class="selected-row"' : ''}>`;
         columns.forEach(col => {
           const value = p[col] !== undefined ? p[col] : '';
-          const displayValue = typeof value === 'number' ? value.toFixed(2) : String(value);
+          let displayValue;
+          if (typeof value === 'number') {
+            // Целые числа выводим без дробной части
+            if (Number.isInteger(value)) {
+              displayValue = String(value);
+            } else {
+              displayValue = value.toFixed(2);
+            }
+          } else {
+            displayValue = String(value);
+          }
           tableHTML += `<td>${displayValue}</td>`;
         });
         tableHTML += '</tr>';
