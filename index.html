@@ -120,7 +120,9 @@
     }
     #reset-view { left: 10px; }
     #collapse-all { left: 130px; }
-    #clear-filters { left: 274px; }
+    #expand-best { left: 270px; }
+    #clear-filters { left: 462px; }
+    #toggle-layout { left: 618px; }
     .highlighted {
       background-color: #ffcc00 !important;
       border-color: #ff9900 !important;
@@ -137,7 +139,9 @@
       <div id="cy"></div>
       <button id="reset-view" class="control-button">Сбросить вид</button>
       <button id="collapse-all" class="control-button">Свернуть дерево</button>
+      <button id="expand-best" class="control-button">Развернуть лучший план</button>
       <button id="clear-filters" class="control-button">Сбросить фильтры</button>
+      <button id="toggle-layout" class="control-button">Повернуть layout</button>
     </div>
     <div id="vertical-resizer"></div>
     <div id="right-container">
@@ -154,7 +158,10 @@
   <script>
     let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters;
     let allBestRoots = [];
+    let bestRelKeys = new Set(); 
     let currentSelectedPathId = null;
+    let bestPathIds = new Set(); 
+    let currentLayoutDirection = 'LR'; // или 'TB'
 
     function isPathVisible(pathIdStr) {
       const path = nodeMap.get(pathIdStr);
@@ -202,6 +209,8 @@
 
           if (!expanded.has(levelItem.id)) continue;
 
+          // Соберём отношения текущего уровня
+          const levelRels = [];
           for (const relItem of relationNodes.values()) {
             const relParts = relItem.id.split('-');
             if (relParts.length < 4 || relParts[0] !== 'relation') continue;
@@ -209,41 +218,147 @@
             const relLevel = relParts[2];
             const expectedLevelId = `level-${relSub}-${relLevel}`;
             if (expectedLevelId !== levelItem.id) continue;
+            levelRels.push(relItem);
+          }
 
+          if (levelRels.length === 0) continue;
+
+          // Разделим на best и other
+          const bestRels = levelRels.filter(rel => bestRelKeys.has(rel.id.replace('relation-', '')));
+          const otherRels = levelRels.filter(rel => !bestRelKeys.has(rel.id.replace('relation-', '')));
+
+          // Контейнер для лучших отношений
+          if (bestRels.length > 0) {
+            const bestGroup = `best-rels-${levelItem.id}`;
             nodes.push({
               group: 'nodes',
-              data: {
-                id: relItem.id,
-                label: relItem.label,
-                parent: levelItem.id
-              },
-              classes: 'relation-group'
+              data: { id: bestGroup, label: 'Best rel', parent: levelItem.id },
+              classes: 'relation-group best-group'
             });
 
-            if (!expanded.has(relItem.id)) continue;
+            if (expanded.has(bestGroup)) {
+              for (const relItem of bestRels) {
+                nodes.push({
+                  group: 'nodes',
+                  data: { id: relItem.id, label: relItem.label, parent: bestGroup },
+                  classes: 'relation-group'
+                });
 
-            const currentFilter = relationFilters.get(relItem.id) || '';
-            for (const [pathIdStr, path] of nodeMap.entries()) {
-              if (path._relKey !== relItem.id.replace('relation-', '')) continue;
-              if (currentFilter && path.path_type.toLowerCase().indexOf(currentFilter.toLowerCase()) === -1) continue;
+                if (expanded.has(relItem.id)) {
+                  const relKey = relItem.id.replace('relation-', '');
+                  const currentFilter = relationFilters.get(relItem.id) || '';
 
-              let label = `${path.path_type}\n(id:${path.path_id})`;
-              if (path.startup_cost !== undefined && path.total_cost !== undefined) {
-                label += `\ncost: ${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)}`;
+                  // Все пути в этом отношении
+                  const relPaths = [];
+                  for (const [pathIdStr, path] of nodeMap.entries()) {
+                    if (path._relKey !== relKey) continue;
+                    if (currentFilter && path.path_type.toLowerCase().indexOf(currentFilter.toLowerCase()) === -1) continue;
+                    relPaths.push({ id: pathIdStr, path });
+                  }
+
+                  if (relPaths.length === 0) continue;
+
+                  // Разделяем на best и other
+                  const bestPaths = relPaths.filter(p => bestPathIds.has(p.id));
+                  const otherPaths = relPaths.filter(p => !bestPathIds.has(p.id));
+
+                  // Группа лучших путей
+                  if (bestPaths.length > 0) {
+                    const bestGroup = `best-paths-${relItem.id}`;
+                    nodes.push({
+                      group: 'nodes',
+                      data: { id: bestGroup, label: `Best paths (${bestPaths.length})`, parent: relItem.id },
+                      classes: 'path-group best-paths-group'
+                    });
+
+                    if (expanded.has(bestGroup)) {
+                      for (const { id, path } of bestPaths) {
+                        let label = `${path.path_type}\n(id:${path.path_id})`;
+                        if (path.startup_cost !== undefined && path.total_cost !== undefined) {
+                          label += `\ncost: ${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)}`;
+                        }
+                        if (path.rows !== undefined) {
+                          label += `\nrows: ${Math.round(path.rows)}`;
+                        }
+                        nodes.push({
+                          group: 'nodes',
+                          data: { id, label, parent: bestGroup },
+                          classes: 'path-node best-path-node'
+                        });
+                      }
+                    }
+                  }
+
+                  // Группа остальных путей
+                  if (otherPaths.length > 0) {
+                    const otherGroup = `other-paths-${relItem.id}`;
+                    nodes.push({
+                      group: 'nodes',
+                      data: { id: otherGroup, label: `Other paths (${otherPaths.length})`, parent: relItem.id },
+                      classes: 'path-group other-paths-group'
+                    });
+
+                    if (expanded.has(otherGroup)) {
+                      for (const { id, path } of otherPaths) {
+                        let label = `${path.path_type}\n(id:${path.path_id})`;
+                        if (path.startup_cost !== undefined && path.total_cost !== undefined) {
+                          label += `\ncost: ${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)}`;
+                        }
+                        if (path.rows !== undefined) {
+                          label += `\nrows: ${Math.round(path.rows)}`;
+                        }
+                        nodes.push({
+                          group: 'nodes',
+                          data: { id, label, parent: otherGroup },
+                          classes: 'path-node'
+                        });
+                      }
+                    }
+                  }
+                }
               }
-              if (path.rows !== undefined) {
-                label += `\nrows: ${Math.round(path.rows)}`;
-              }
+            }
+          }
 
-              nodes.push({
-                group: 'nodes',
-                data: {
-                  id: pathIdStr,
-                  label: label,
-                  parent: relItem.id
-                },
-                classes: 'path-node'
-              });
+          // Контейнер для остальных отношений
+          if (otherRels.length > 0) {
+            const otherGroup = `other-rels-${levelItem.id}`;
+            nodes.push({
+              group: 'nodes',
+              data: { id: otherGroup, label: `Other rels (${otherRels.length})`, parent: levelItem.id },
+              classes: 'relation-group other-group'
+            });
+
+            if (expanded.has(otherGroup)) {
+              for (const relItem of otherRels) {
+                nodes.push({
+                  group: 'nodes',
+                  data: { id: relItem.id, label: relItem.label, parent: otherGroup },
+                  classes: 'relation-group'
+                });
+
+                if (expanded.has(relItem.id)) {
+                  const currentFilter = relationFilters.get(relItem.id) || '';
+                  for (const [pathIdStr, path] of nodeMap.entries()) {
+                    if (path._relKey !== relItem.id.replace('relation-', '')) continue;
+                    if (currentFilter && path.path_type.toLowerCase().indexOf(currentFilter.toLowerCase()) === -1) continue;
+
+                    let label = `${path.path_type}\n(id:${path.path_id})`;
+                    if (path.startup_cost !== undefined && path.total_cost !== undefined) {
+                      label += `\ncost: ${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)}`;
+                    }
+                    if (path.rows !== undefined) {
+                      label += `\nrows: ${Math.round(path.rows)}`;
+                    }
+
+                    nodes.push({
+                      group: 'nodes',
+                      data: { id: pathIdStr, label: label, parent: relItem.id },
+                      classes: 'path-node'
+                    });
+                  }
+                }
+              }
             }
           }
         }
@@ -268,11 +383,20 @@
         }
       }
 
+      // Собираем ID всех добавленных узлов (включая пути)
+      const addedNodeIds = new Set();
+      nodes.forEach(node => {
+        if (node.data && node.data.id) {
+          addedNodeIds.add(node.data.id);
+        }
+      });
+
+      // Строим рёбра ТОЛЬКО между реально существующими узлами
       for (const [srcId, path] of nodeMap.entries()) {
-        if (!isPathVisible(srcId) || !Array.isArray(path.child_paths)) continue;
+        if (!addedNodeIds.has(srcId) || !Array.isArray(path.child_paths)) continue;
         for (const childId of path.child_paths) {
           const childIdStr = String(childId);
-          if (isPathVisible(childIdStr)) {
+          if (addedNodeIds.has(childIdStr)) {
             edges.push({
               group: 'edges',
               data: {
@@ -294,10 +418,10 @@
       cy.json({ elements });
       cy.layout({
         name: 'dagre',
-        rankDir: 'LR',
+        rankDir: currentLayoutDirection, // TB LR 
         nodeSep: 40,
         edgeSep: 40,
-        rankSep: 80,
+        rankSep: currentLayoutDirection === 'LR' ? 70 : 40,
         animate: true,
         animationDuration: 300,
         fit: true 
@@ -327,40 +451,107 @@
 
     function findAllBestPlans() {
       allBestRoots = [];
+      bestRelKeys.clear();
+      bestPathIds.clear();
 
-      for (const [subKey, levelsSet] of levelOrder) {
-        let maxRelId = -1;
-        let targetRelKey = null;
-
-        for (const [relKey] of relationNodes.entries()) {
-          const parts = relKey.split('-'); // "1-L0-R4"
-          if (parts.length === 3 && parts[0] === subKey && parts[1] === 'L0' && parts[2].startsWith('R')) {
-            const relIdNum = parseInt(parts[2].substring(1), 10);
-            if (!isNaN(relIdNum) && relIdNum > maxRelId) {
-              maxRelId = relIdNum;
-              targetRelKey = relKey;
-            }
-          }
+      // Шаг 1: найти все пути с subquery_level = 1 и level = 0
+      const candidateRoots = [];
+      for (const path of nodeMap.values()) {
+        if (path.subquery_level === 1 && path.level === 0) {
+          candidateRoots.push(path);
         }
-
-        if (!targetRelKey) continue;
-
-        const targetPaths = [];
-        for (const [pathIdStr, path] of nodeMap.entries()) {
-          if (path._relKey === targetRelKey) {
-            if (path.total_cost === undefined) {
-              console.warn('Путь без total_cost, пропускаем:', path);
-              continue;
-            }
-            targetPaths.push(path);
-          }
-        }
-
-        if (targetPaths.length === 0) continue;
-
-        const best = targetPaths.reduce((a, b) => a.total_cost < b.total_cost ? a : b);
-        allBestRoots.push(best);
       }
+
+      if (candidateRoots.length === 0) {
+        console.warn('Не найдено путей с subquery_level=1 и level=0');
+        return;
+      }
+
+      // Шаг 2: выбрать путь с НАИБОЛЬШИМ rel_id,
+      // а при равенстве rel_id — с НАИМЕНЬШЕЙ total_cost
+      const bestRoot = candidateRoots.reduce((a, b) => {
+        const aRelId = a.rel_id ?? -Infinity;
+        const bRelId = b.rel_id ?? -Infinity;
+
+        if (aRelId !== bRelId) {
+          return aRelId > bRelId ? a : b; // ← сначала max rel_id
+        }
+
+        // Если rel_id одинаковые — выбираем дешевле
+        return a.total_cost < b.total_cost ? a : b;
+      });
+
+      // Шаг 3: рекурсивно собрать всё дерево от этого корня
+      function collectPathTree(p) {
+        bestPathIds.add(String(p.path_id));
+        bestRelKeys.add(p._relKey);
+        if (Array.isArray(p.child_paths)) {
+          for (const childId of p.child_paths) {
+            const child = nodeMap.get(String(childId));
+            if (child) collectPathTree(child);
+          }
+        }
+      }
+
+      collectPathTree(bestRoot);
+      allBestRoots = [bestRoot];
+  /*
+      allBestRoots = [];
+      bestRelKeys.clear();
+
+      function collectBestPathIds(path) {
+        bestPathIds.add(String(path.path_id));
+        if (Array.isArray(path.child_paths)) {
+          for (const childId of path.child_paths) {
+            const child = nodeMap.get(String(childId));
+            if (child) collectBestPathIds(child);
+          }
+        }
+      }
+
+      // Собираем все child_path ID
+      const childPathIds = new Set();
+      for (const path of nodeMap.values()) {
+        if (Array.isArray(path.child_paths)) {
+          for (const childId of path.child_paths) {
+            childPathIds.add(String(childId));
+          }
+        }
+      }
+
+      // Корни — это пути, которых НЕТ в childPathIds
+      const rootPaths = [];
+      for (const [pathIdStr, path] of nodeMap.entries()) {
+        if (!childPathIds.has(pathIdStr)) {
+          if (path.total_cost !== undefined) {
+            rootPaths.push(path);
+          }
+        }
+      }
+
+      if (rootPaths.length === 0) {
+        console.warn('Не найдено корневых путей');
+        return;
+      }
+
+      // Выбираем лучший среди корней
+      const bestRoot = rootPaths.reduce((a, b) => a.total_cost < b.total_cost ? a : b);
+      allBestRoots = [bestRoot]; // ← только один!
+      bestPathIds.clear();
+      collectBestPathIds(bestRoot);
+
+      // Собираем все отношения из этого дерева
+      function collectRelKeys(path) {
+        bestRelKeys.add(path._relKey);
+        if (Array.isArray(path.child_paths)) {
+          for (const childId of path.child_paths) {
+            const child = nodeMap.get(String(childId));
+            if (child) collectRelKeys(child);
+          }
+        }
+      }
+      collectRelKeys(bestRoot);
+      */
     }
 
     function renderAllBestPlans() {
@@ -427,6 +618,9 @@
       });
     }
 
+    // Глобальное состояние видимости столбцов (сохраняется между вызовами)
+    let globalVisibleColumns = null;
+
     function showAlternativePaths(clickedPathId) {
       const clickedPath = nodeMap.get(clickedPathId);
       if (!clickedPath) return;
@@ -440,6 +634,7 @@
         return;
       }
 
+      // === ФИКСИРОВАННЫЙ ПОРЯДОК СТОЛБЦОВ ===
       const COLUMN_ORDER = [
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
         "path_type", "rel_name", "rel_alias", "indexoid", "level",
@@ -457,18 +652,57 @@
         }
       }
 
-      const columns = COLUMN_ORDER.filter(col => allKeys.has(col));
+      const orderedColumns = COLUMN_ORDER.filter(col => allKeys.has(col));
       const extraKeys = Array.from(allKeys).filter(k => !COLUMN_ORDER.includes(k));
-      const finalColumns = [...columns, ...extraKeys];
+      const allColumns = [...orderedColumns, ...extraKeys];
 
-      let tableHTML = `
-        <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..." 
-              style="width:100%; padding:6px 10px; margin-bottom:10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
-        <div id="table-wrapper"; max-height:100%;">
-          <table><thead><tr>
+      // Инициализируем глобальные настройки один раз
+      if (globalVisibleColumns === null) {
+        globalVisibleColumns = new Set(allColumns);
+      } else {
+        // Удаляем столбцы, которых больше нет в текущих данных
+        for (const col of Array.from(globalVisibleColumns)) {
+          if (!allColumns.includes(col)) {
+            globalVisibleColumns.delete(col);
+          }
+        }
+      }
+      const visibleColumns = globalVisibleColumns;
+
+      // Удаляем столбцы, которых больше нет в данных
+      for (const col of Array.from(visibleColumns)) { // ← важно: Array.from, чтобы избежать ошибки при удалении
+        if (!allColumns.includes(col)) {
+          visibleColumns.delete(col);
+        }
+      }
+
+      // === Формируем HTML ===
+      let controlsHTML = `
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+          <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..." 
+                style="flex:1; min-width:150px; padding:6px 10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
+          <div style="position:relative; display:inline-block;">
+            <button id="toggle-columns-btn" type="button"
+                    style="padding:6px 10px; border:1px solid #ccc; background:#fff; border-radius:3px; cursor:pointer; font-size:13px;">
+              ⚙️ Столбцы
+            </button>
+            <div id="columns-dropdown" style="display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #ccc; border-radius:3px; z-index:1000; max-height:300px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+              ${allColumns.map(col => `
+                <label style="display:flex; align-items:center; padding:6px 10px; cursor:pointer; white-space:nowrap; gap:6px;">
+                  <input type="checkbox" data-column="${col}" ${visibleColumns.has(col) ? 'checked' : ''}>
+                  ${col}
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
       `;
 
-      columns.forEach(col => {
+      let tableHTML = `<div id="table-wrapper" style="max-height:100%; overflow:auto;"><table><thead><tr>`;
+
+      // Только видимые столбцы
+      const displayedColumns = allColumns.filter(col => visibleColumns.has(col));
+      displayedColumns.forEach(col => {
         tableHTML += `<th data-column="${col}">${col}</th>`;
       });
       tableHTML += '</tr></thead><tbody>';
@@ -476,11 +710,10 @@
       alternatives.forEach(p => {
         const isSelected = String(p.path_id) === clickedPathId;
         tableHTML += `<tr data-path-id="${p.path_id}"${isSelected ? ' class="selected-row"' : ''}>`;
-        columns.forEach(col => {
+        displayedColumns.forEach(col => {
           const value = p[col] !== undefined ? p[col] : '';
           let displayValue;
           if (typeof value === 'number') {
-            // Целые числа выводим без дробной части
             if (Number.isInteger(value)) {
               displayValue = String(value);
             } else {
@@ -496,12 +729,55 @@
 
       tableHTML += '</tbody></table></div>';
 
-      container.innerHTML = tableHTML;
+      // Сохраняем состояние меню: открыто ли и позицию прокрутки
+      const oldDropdown = document.getElementById('columns-dropdown');
+      const wasDropdownOpen = oldDropdown?.style.display === 'block';
+      const scrollPos = oldDropdown?.scrollTop || 0;
 
-      // --- Обработчик поиска ---
+      // Перерисовываем
+      container.innerHTML = `
+        <div id="columns-controls">${controlsHTML}</div>
+        <div id="table-container">${tableHTML}</div>
+      `;
+
+      // Восстанавливаем состояние
+      if (wasDropdownOpen) {
+        const newDropdown = document.getElementById('columns-dropdown');
+        if (newDropdown) {
+          newDropdown.style.display = 'block';
+          newDropdown.scrollTop = scrollPos;
+        }
+      }
+
+      if (wasDropdownOpen) {
+        document.getElementById('columns-dropdown').style.display = 'block';
+      }
+
+      // === Обработчики ===
+      const dropdown = document.getElementById('columns-dropdown');
+      const toggleBtn = document.getElementById('toggle-columns-btn');
+
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+      });
+
+      // Обработка чекбоксов
+      dropdown.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+          const col = this.getAttribute('data-column');
+          if (this.checked) {
+            visibleColumns.add(col);
+          } else {
+            visibleColumns.delete(col);
+          }
+          // Перерисовать таблицу один раз после изменения
+          showAlternativePaths(clickedPathId);
+        });
+      });
+
       const searchInput = document.getElementById('table-search');
-      const tableWrapper = document.getElementById('table-wrapper');
-      const rows = tableWrapper.querySelectorAll('tbody tr');
+      const rows = container.querySelectorAll('#table-wrapper tbody tr');
 
       searchInput.addEventListener('input', () => {
         const term = searchInput.value.toLowerCase().trim();
@@ -520,48 +796,51 @@
         });
       });
 
-      document.querySelectorAll('#table-wrapper th').forEach(th => {
-        th.addEventListener('click', () => {
-          const column = th.getAttribute('data-column');
-          const currentSort = th.classList.contains('sort-asc') ? 'asc' :
-                              th.classList.contains('sort-desc') ? 'desc' : null;
-          const newSort = currentSort === 'asc' ? 'desc' : 'asc';
+      // Сортировка — только по видимым столбцам
+      displayedColumns.forEach((col, idx) => {
+        const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
+        if (th) {
+          th.addEventListener('click', () => {
+            const currentSort = th.classList.contains('sort-asc') ? 'asc' :
+                                th.classList.contains('sort-desc') ? 'desc' : null;
+            const newSort = current_sort === 'asc' ? 'desc' : 'asc';
 
-          document.querySelectorAll('#table-wrapper th').forEach(t => {
-            t.classList.remove('sort-asc', 'sort-desc');
+            container.querySelectorAll('#table-wrapper th').forEach(t => {
+              t.classList.remove('sort-asc', 'sort-desc');
+            });
+            th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            const tbody = th.closest('table').querySelector('tbody');
+            const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+
+            visibleRows.sort((a, b) => {
+              const aValue = a.cells[idx]?.textContent.trim() || '';
+              const bValue = b.cells[idx]?.textContent.trim() || '';
+
+              let aNum = parseFloat(aValue);
+              let bNum = parseFloat(bValue);
+
+              if (!isNaN(aNum) && !isNaN(bNum)) {
+                return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+              } else {
+                return newSort === 'asc'
+                  ? aValue.localeCompare(bValue)
+                  : bValue.localeCompare(aValue);
+              }
+            });
+
+            visibleRows.forEach(row => tbody.appendChild(row));
           });
-          th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
-
-          const tbody = th.closest('table').querySelector('tbody');
-          const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
-
-          visibleRows.sort((a, b) => {
-            const aValue = a.cells[th.cellIndex].textContent.trim();
-            const bValue = b.cells[th.cellIndex].textContent.trim();
-
-            let aNum = parseFloat(aValue);
-            let bNum = parseFloat(bValue);
-
-            if (!isNaN(aNum) && !isNaN(bNum)) {
-              return newSort === 'asc' ? aNum - bNum : bNum - aNum;
-            } else {
-              return newSort === 'asc'
-                ? aValue.localeCompare(bValue)
-                : bValue.localeCompare(aValue);
-            }
-          });
-
-          visibleRows.forEach(row => tbody.appendChild(row));
-        });
+        }
       });
 
-      // Клик по строке таблицы 
-      document.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
+      // Клик по строке таблицы
+      container.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
         row.addEventListener('click', () => {
           const pathId = row.getAttribute('data-path-id');
           if (!pathId) return;
 
-          // Сброс выделения
+          // Сброс выделения в EXPLAIN и таблице
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
 
@@ -708,6 +987,85 @@
         findAllBestPlans();
         renderAllBestPlans();
 
+        // Автоматически раскрыть лучший путь
+        function expandBestPath() {
+          function expandNode(path) {
+            if (!path) return;
+
+            // Раскрываем иерархию для этого узла
+            const subId = `subquery-${path._subKey}`;
+            const levelId = `level-${path._levelKey}`;
+            const bestGroup = `best-rels-${levelId}`;
+            const relId = `relation-${path._relKey}`;
+            const bestPathsGroup = `best-paths-${relId}`;  
+
+            expanded.set(subId, true);
+            expanded.set(levelId, true);
+            expanded.set(bestGroup, true);
+            expanded.set(relId, true);
+            expanded.set(bestPathsGroup, true); 
+
+            // Рекурсивно раскрываем всех потомков
+            if (Array.isArray(path.child_paths)) {
+              for (const childId of path.child_paths) {
+                const child = nodeMap.get(String(childId));
+                if (child) {
+                  expandNode(child);
+                }
+              }
+            }
+          }
+
+          // Раскрываем все корни (обычно один)
+          for (const root of allBestRoots) {
+            expandNode(root);
+          }
+        }
+
+        function expandBestPlanOnly() {
+          // Полностью очищаем expanded
+          expanded.clear();
+
+          // Сбрасываем текущий выбор
+          currentSelectedPathId = null;
+          cy.elements('.selected-in-tree, .highlighted, .highlighted-edge')
+            .removeClass('selected-in-tree highlighted highlighted-edge');
+
+          // Раскрываем ТОЛЬКО узлы, относящиеся к лучшему плану
+          function expandNode(path) {
+            if (!path) return;
+            const subId = `subquery-${path._subKey}`;
+            const levelId = `level-${path._levelKey}`;
+            const bestRelsGroup = `best-rels-${levelId}`;
+            const relId = `relation-${path._relKey}`;
+            const bestPathsGroup = `best-paths-${relId}`;
+
+            expanded.set(subId, true);
+            expanded.set(levelId, true);
+            expanded.set(bestRelsGroup, true);
+            expanded.set(relId, true);
+            expanded.set(bestPathsGroup, true); // ← важно для отображения путей
+
+            // Рекурсивно раскрываем всех потомков
+            if (Array.isArray(path.child_paths)) {
+              for (const childId of path.child_paths) {
+                const child = nodeMap.get(String(childId));
+                if (child) {
+                  expandNode(child);
+                }
+              }
+            }
+          }
+
+          for (const root of allBestRoots) {
+            expandNode(root);
+          }
+
+          // Обновляем граф
+          refreshGraph();
+        }
+        expandBestPath();
+
         cy = cytoscape({
           container: document.getElementById('cy'),
           elements: [],
@@ -728,6 +1086,24 @@
                 'height': '50px',
                 'border-width': 1,
                 'border-color': '#999'
+              }
+            },
+            {
+            selector: 'node.path-group',
+              style: {
+                'shape': 'roundrectangle',
+                'label': 'data(label)',
+                'text-valign': 'top',
+                'text-halign': 'right',
+                'text-margin-x': '-8px',
+                'text-margin-y': '4px',
+                'color': '#000',
+                'font-size': '11px',
+                'font-weight': 'bold',
+                'background-opacity': 0.15,
+                'border-width': 1,
+                'border-style': 'dashed',
+                'border-color': '#666'
               }
             },
             {
@@ -842,6 +1218,14 @@
           refreshGraph();
         });
 
+        document.getElementById('expand-best').addEventListener('click', () => {
+          expandBestPlanOnly();
+        });
+        document.getElementById('toggle-layout').addEventListener('click', () => {
+          currentLayoutDirection = currentLayoutDirection === 'LR' ? 'TB' : 'LR';
+          refreshGraph(); // перестроит граф с новым layout
+        });
+
         cy.on('tap', 'node.subquery-group, node.level-group', function (evt) {
           const id = evt.target.id();
           if (expanded.has(id)) {
@@ -856,6 +1240,17 @@
           const id = evt.target.id();
           const originalEvent = evt.originalEvent;
           const isFilterMode = originalEvent.ctrlKey || originalEvent.metaKey;
+
+          // Пропускаем, если это групповой узел (best/other)
+          if (id.startsWith('best-rels-') || id.startsWith('other-rels-')) {
+            if (expanded.has(id)) {
+              expanded.delete(id);
+            } else {
+              expanded.set(id, true);
+            }
+            refreshGraph();
+            return;
+          }
 
           if (isFilterMode) {
             const currentFilter = relationFilters.get(id) || '';
@@ -915,6 +1310,16 @@
           });
         });
 
+        cy.on('tap', 'node.path-group', function (evt) {
+          const id = evt.target.id();
+          if (expanded.has(id)) {
+            expanded.delete(id);
+          } else {
+            expanded.set(id, true);
+          }
+          refreshGraph();
+        });
+
         cy.on('tap', (evt) => {
           if (evt.target === cy) {
             cy.elements('.highlighted, .highlighted-edge').removeClass('highlighted highlighted-edge');
@@ -927,6 +1332,20 @@
         console.error('Failed to load data.json:', err);
         alert('Ошибка загрузки data.json: ' + err.message);
         document.getElementById('explain-container').textContent = 'Ошибка загрузки данных.';
+      });
+
+      // Закрытие меню столбцов при клике вне его
+      document.addEventListener('click', function(e) {
+        const btn = document.getElementById('toggle-columns-btn');
+        const dropdown = document.getElementById('columns-dropdown');
+
+        // Если меню существует и открыто
+        if (dropdown && dropdown.style.display === 'block') {
+          // Если клик НЕ по кнопке и НЕ по меню — закрыть
+          if (!btn?.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = 'none';
+          }
+        }
       });
   </script>
 </body>
