@@ -65,6 +65,14 @@
     #explain-container .selected {
       background-color: #cce6ff !important;
     }
+    #explain-container .section-header {
+      font-weight: bold;
+      margin-top: 10px;
+      margin-bottom: 5px;
+      padding: 5px;
+      background-color: #e6f3ff;
+      border-left: 3px solid #0066cc;
+    }
     #horizontal-resizer {
       height: 6px;
       background: #ccc;
@@ -170,9 +178,10 @@
   <script>
     let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters;
     let allBestRoots = [];
-    let bestRelKeys = new Set(); 
+    let bestRelKeys = new Set();
     let currentSelectedPathId = null;
-    let bestPathIds = new Set(); 
+    let bestPathIds = new Set();
+    let bestSubqueryIds = new Set(); // Track subquery IDs included in best paths
     let currentLayoutDirection = 'LR'; // или 'TB'
 
     function isPathVisible(pathIdStr) {
@@ -465,38 +474,39 @@
       allBestRoots = [];
       bestRelKeys.clear();
       bestPathIds.clear();
+      bestSubqueryIds.clear();
 
-      // Шаг 1: найти все пути с subquery_level = 1 и level = 0
-      const candidateRoots = [];
+      // First, find the main query best plan (subquery_level = 1)
+      const mainCandidateRoots = [];
       for (const path of nodeMap.values()) {
         if (path.subquery_level === 1 && path.level === 0) {
-          candidateRoots.push(path);
+          mainCandidateRoots.push(path);
         }
       }
 
-      if (candidateRoots.length === 0) {
+      if (mainCandidateRoots.length === 0) {
         console.warn('Не найдено путей с subquery_level=1 и level=0');
         return;
       }
 
-      // Шаг 2: выбрать путь с НАИБОЛЬШИМ rel_id,
-      // а при равенстве rel_id — с НАИМЕНЬШЕЙ total_cost
-      const bestRoot = candidateRoots.reduce((a, b) => {
+      // Choose the main best root: highest rel_id, then lowest cost
+      const mainBestRoot = mainCandidateRoots.reduce((a, b) => {
         const aRelId = a.rel_id ?? -Infinity;
         const bRelId = b.rel_id ?? -Infinity;
 
         if (aRelId !== bRelId) {
-          return aRelId > bRelId ? a : b; // ← сначала max rel_id
+          return aRelId > bRelId ? a : b;
         }
 
-        // Если rel_id одинаковые — выбираем дешевле
         return a.total_cost < b.total_cost ? a : b;
       });
 
-      // Шаг 3: рекурсивно собрать всё дерево от этого корня
+      // Collect the entire main best path tree
       function collectPathTree(p) {
         bestPathIds.add(String(p.path_id));
         bestRelKeys.add(p._relKey);
+        bestSubqueryIds.add(p.subquery_id); // Track which subquery this path belongs to
+
         if (Array.isArray(p.child_paths)) {
           for (const childId of p.child_paths) {
             const child = nodeMap.get(String(childId));
@@ -505,8 +515,78 @@
         }
       }
 
-      collectPathTree(bestRoot);
-      allBestRoots = [bestRoot];
+      collectPathTree(mainBestRoot);
+      allBestRoots = [mainBestRoot]; // Main query best root
+
+      // Now also include paths from independent CTE plans as "best" for their own subqueries
+      // This ensures they appear as "best" in the tree visualization
+      const unincludedSubqueries = getUnincludedSubqueries();
+      for (const root of unincludedSubqueries) {
+        // Collect the entire path tree for this independent CTE plan as well
+        function collectIndependentPathTree(p) {
+          // Only add to best sets if not already added (to avoid duplicates)
+          if (!bestPathIds.has(String(p.path_id))) {
+            bestPathIds.add(String(p.path_id));
+            bestRelKeys.add(p._relKey);
+            bestSubqueryIds.add(p.subquery_id);
+          }
+
+          if (Array.isArray(p.child_paths)) {
+            for (const childId of p.child_paths) {
+              const child = nodeMap.get(String(childId));
+              if (child) collectIndependentPathTree(child);
+            }
+          }
+        }
+
+        collectIndependentPathTree(root);
+      }
+    }
+
+    // Function to get all subquery IDs present in the data
+    function getAllSubqueryIds() {
+      const allSubqueryIds = new Set();
+      for (const path of nodeMap.values()) {
+        allSubqueryIds.add(path.subquery_id);
+      }
+      return allSubqueryIds;
+    }
+
+    // Function to get subqueries that are NOT referenced by the main plan
+    function getUnincludedSubqueries() {
+      const allSubqueryIds = getAllSubqueryIds();
+      const unincludedSubqueries = [];
+
+      // Determine which subqueries are referenced by the main plan
+      const referencedSubqueryIds = new Set();
+      for (const pathId of bestPathIds) {
+        const path = nodeMap.get(pathId);
+        if (path && Array.isArray(path.child_paths)) {
+          for (const childId of path.child_paths) {
+            const child = nodeMap.get(String(childId));
+            if (child && child.subquery_id !== path.subquery_id) {
+              // Child is from a different subquery (likely a CTE reference)
+              referencedSubqueryIds.add(child.subquery_id);
+            }
+          }
+        }
+      }
+
+      for (const subqueryId of allSubqueryIds) {
+        // Only include subqueries that are CTEs/subqueries (not main query) and not referenced by main plan
+        const isMainQuery = Array.from(allBestRoots).some(root => root.subquery_id == subqueryId);
+        if (!isMainQuery && !referencedSubqueryIds.has(subqueryId)) {
+          // Find the root path for this subquery to display as a separate best plan
+          for (const path of nodeMap.values()) {
+            if (path.subquery_id == subqueryId && path.level === 0) {
+              unincludedSubqueries.push(path);
+              break; // Just take the first root path for this subquery
+            }
+          }
+        }
+      }
+
+      return unincludedSubqueries;
     }
 
     function renderAllBestPlans() {
@@ -517,45 +597,90 @@
 
       const lines = []; // { text, pathId }
 
-      allBestRoots.forEach((root, idx) => {
-        if (idx > 0) lines.push({ text: "", pathId: null });
+      // Render main query plans (subquery_level = 1)
+      if (allBestRoots.length > 0) {
+        lines.push({ text: "=== Основной план запроса ===", pathId: null });
 
-        const collectLines = (path, depth) => {
-          const idStr = String(path.path_id);
-          const indent = "  ".repeat(depth);
+        allBestRoots.forEach((root, idx) => {
+          if (idx > 0) lines.push({ text: "", pathId: null });
 
-          let line = `${indent}-> ${path.path_type}`;
-          if (path.rel_name) {
-            if (path.rel_alias && path.rel_alias !== path.rel_name) {
-              line += ` on ${path.rel_name} ${path.rel_alias}`;
-            } else {
-              line += ` on ${path.rel_name}`;
-            }
-          }  
-          if (path.total_cost !== undefined) {
-            line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
-          }
-          lines.push({ text: line, pathId: idStr });
+          const collectLines = (path, depth) => {
+            const idStr = String(path.path_id);
+            const indent = "  ".repeat(depth);
 
-          if (Array.isArray(path.child_paths)) {
-            for (const childId of path.child_paths) {
-              const child = nodeMap.get(String(childId));
-              if (child) {
-                collectLines(child, depth + 1);
+            let line = `${indent}-> ${path.path_type}`;
+            if (path.rel_name) {
+              if (path.rel_alias && path.rel_alias !== path.rel_name) {
+                line += ` on ${path.rel_name} ${path.rel_alias}`;
+              } else {
+                line += ` on ${path.rel_name}`;
               }
             }
-          }
-        };
+            if (path.total_cost !== undefined) {
+              line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
+            }
+            lines.push({ text: line, pathId: idStr });
 
-        collectLines(root, 0);
-      });
+            if (Array.isArray(path.child_paths)) {
+              for (const childId of path.child_paths) {
+                const child = nodeMap.get(String(childId));
+                if (child) {
+                  collectLines(child, depth + 1);
+                }
+              }
+            }
+          };
+
+          collectLines(root, 0);
+        });
+      }
+
+      // Get and render CTE/subquery plans that are NOT part of the best path tree
+      const unincludedSubqueries = getUnincludedSubqueries();
+      if (unincludedSubqueries.length > 0) {
+        if (lines.length > 0) lines.push({ text: "", pathId: null });
+        lines.push({ text: "=== Вложенные планы (CTE, подзапросы), НЕ используемые в основном плане ===", pathId: null });
+
+        unincludedSubqueries.forEach((root, idx) => {
+          if (idx > 0) lines.push({ text: "", pathId: null });
+
+          const collectLines = (path, depth) => {
+            const idStr = String(path.path_id);
+            const indent = "  ".repeat(depth);
+
+            let line = `${indent}-> ${path.path_type}`;
+            if (path.rel_name) {
+              if (path.rel_alias && path.rel_alias !== path.rel_name) {
+                line += ` on ${path.rel_name} ${path.rel_alias}`;
+              } else {
+                line += ` on ${path.rel_name}`;
+              }
+            }
+            if (path.total_cost !== undefined) {
+              line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
+            }
+            lines.push({ text: line, pathId: idStr });
+
+            if (Array.isArray(path.child_paths)) {
+              for (const childId of path.child_paths) {
+                const child = nodeMap.get(String(childId));
+                if (child) {
+                  collectLines(child, depth + 1);
+                }
+              }
+            }
+          };
+
+          collectLines(root, 0);
+        });
+      }
 
       const explainContainer = document.getElementById('explain-container');
       explainContainer.innerHTML = lines.map(({ text, pathId }) => {
         if (pathId) {
           return `<div class="path-line" data-path-id="${pathId}">${text}</div>`;
         }
-        return `<div>${text}</div>`;
+        return `<div class="section-header">${text}</div>`;
       }).join('');
 
       explainContainer.querySelectorAll('.path-line').forEach(el => {
@@ -1054,13 +1179,13 @@
             const levelId = `level-${path._levelKey}`;
             const bestGroup = `best-rels-${levelId}`;
             const relId = `relation-${path._relKey}`;
-            const bestPathsGroup = `best-paths-${relId}`;  
+            const bestPathsGroup = `best-paths-${relId}`;
 
             expanded.set(subId, true);
             expanded.set(levelId, true);
             expanded.set(bestGroup, true);
             expanded.set(relId, true);
-            expanded.set(bestPathsGroup, true); 
+            expanded.set(bestPathsGroup, true);
 
             // Рекурсивно раскрываем всех потомков
             if (Array.isArray(path.child_paths)) {
@@ -1073,8 +1198,14 @@
             }
           }
 
-          // Раскрываем все корни (обычно один)
+          // Раскрываем все корни (main query only)
           for (const root of allBestRoots) {
+            expandNode(root);
+          }
+
+          // Also expand independent CTE plans that are not part of the main plan
+          const unincludedSubqueries = getUnincludedSubqueries();
+          for (const root of unincludedSubqueries) {
             expandNode(root);
           }
         }
@@ -1101,7 +1232,7 @@
             expanded.set(levelId, true);
             expanded.set(bestRelsGroup, true);
             expanded.set(relId, true);
-            expanded.set(bestPathsGroup, true); // ← важно для отображения путей
+            expanded.set(bestPathsGroup, true);
 
             // Рекурсивно раскрываем всех потомков
             if (Array.isArray(path.child_paths)) {
@@ -1114,7 +1245,14 @@
             }
           }
 
+          // Expand all best roots (main query only)
           for (const root of allBestRoots) {
+            expandNode(root);
+          }
+
+          // Also expand independent CTE plans that are not part of the main plan
+          const unincludedSubqueries = getUnincludedSubqueries();
+          for (const root of unincludedSubqueries) {
             expandNode(root);
           }
 
