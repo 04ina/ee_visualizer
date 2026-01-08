@@ -131,6 +131,18 @@
     .selected-row {
       background-color: #cce6ff !important;
     }
+    input[type="checkbox"].indeterminate::after {
+      content: "-";
+      display: block;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 8px;
+      height: 2px;
+      background-color: currentColor;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -418,13 +430,13 @@
       cy.json({ elements });
       cy.layout({
         name: 'dagre',
-        rankDir: currentLayoutDirection, // TB LR 
+        rankDir: currentLayoutDirection, // TB LR
         nodeSep: 40,
         edgeSep: 40,
         rankSep: currentLayoutDirection === 'LR' ? 70 : 40,
         animate: true,
         animationDuration: 300,
-        fit: true 
+        fit: true
       }).run();
 
       if (currentSelectedPathId) {
@@ -495,63 +507,6 @@
 
       collectPathTree(bestRoot);
       allBestRoots = [bestRoot];
-  /*
-      allBestRoots = [];
-      bestRelKeys.clear();
-
-      function collectBestPathIds(path) {
-        bestPathIds.add(String(path.path_id));
-        if (Array.isArray(path.child_paths)) {
-          for (const childId of path.child_paths) {
-            const child = nodeMap.get(String(childId));
-            if (child) collectBestPathIds(child);
-          }
-        }
-      }
-
-      // Собираем все child_path ID
-      const childPathIds = new Set();
-      for (const path of nodeMap.values()) {
-        if (Array.isArray(path.child_paths)) {
-          for (const childId of path.child_paths) {
-            childPathIds.add(String(childId));
-          }
-        }
-      }
-
-      // Корни — это пути, которых НЕТ в childPathIds
-      const rootPaths = [];
-      for (const [pathIdStr, path] of nodeMap.entries()) {
-        if (!childPathIds.has(pathIdStr)) {
-          if (path.total_cost !== undefined) {
-            rootPaths.push(path);
-          }
-        }
-      }
-
-      if (rootPaths.length === 0) {
-        console.warn('Не найдено корневых путей');
-        return;
-      }
-
-      // Выбираем лучший среди корней
-      const bestRoot = rootPaths.reduce((a, b) => a.total_cost < b.total_cost ? a : b);
-      allBestRoots = [bestRoot]; // ← только один!
-      bestPathIds.clear();
-      collectBestPathIds(bestRoot);
-
-      // Собираем все отношения из этого дерева
-      function collectRelKeys(path) {
-        bestRelKeys.add(path._relKey);
-        if (Array.isArray(path.child_paths)) {
-          for (const childId of path.child_paths) {
-            const child = nodeMap.get(String(childId));
-            if (child) collectRelKeys(child);
-          }
-        }
-      }
-      collectRelKeys(bestRoot);
-      */
     }
 
     function renderAllBestPlans() {
@@ -621,6 +576,79 @@
     // Глобальное состояние видимости столбцов (сохраняется между вызовами)
     let globalVisibleColumns = null;
 
+    function renderGroupedColumns(allColumns, visibleColumns) {
+      // Определяем группы столбцов
+      const columnGroups = {
+        "Иерархия и идентификаторы": ["query_id", "subquery_id", "subquery_level", "level", "rel_id", "path_id", "child_paths"],
+        "Основные характеристики": ["startup_cost", "total_cost", "rows", "width"],
+        "Результат работы add_path": ["add_path_result", "displaced_by", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp", "cost_cmp"],
+        "Другие": []
+      };
+
+      // Определяем, какие столбцы относятся к существующим группам
+      const groupedColumns = new Set();
+      for (const group of Object.values(columnGroups)) {
+        for (const col of group) {
+          groupedColumns.add(col);
+        }
+      }
+
+      // Остальные столбцы добавляем в "Другие"
+      for (const col of allColumns) {
+        if (!groupedColumns.has(col)) {
+          columnGroups["Другие"].push(col);
+        }
+      }
+
+      let html = '';
+      for (const [groupName, groupColumns] of Object.entries(columnGroups)) {
+        if (groupColumns.length === 0) continue;
+
+        // Проверяем, все ли столбцы в группе видимы
+        const allVisible = groupColumns.every(col => visibleColumns.has(col));
+        const someVisible = groupColumns.some(col => visibleColumns.has(col));
+
+        html += `
+          <div style="padding: 4px 6px; border-bottom: 1px solid #eee;">
+            <label style="display: flex; align-items: center; padding: 4px 6px; cursor: pointer; white-space: nowrap; gap: 6px;">
+              <input type="checkbox" class="group-checkbox" data-group="${groupName}" ${allVisible ? 'checked' : ''}>
+              <strong>${groupName}</strong>
+            </label>
+            <div style="margin-left: 20px;">
+        `;
+
+        for (const col of groupColumns) {
+          html += `
+            <label style="display: flex; align-items: center; padding: 2px 6px; cursor: pointer; white-space: nowrap; gap: 6px;">
+              <input type="checkbox" class="column-checkbox" data-column="${col}" data-group="${groupName}" ${visibleColumns.has(col) ? 'checked' : ''}>
+              ${col}
+            </label>
+          `;
+        }
+
+        html += `
+            </div>
+          </div>
+        `;
+      }
+
+      return html;
+    }
+
+    function setGroupIndeterminateStates(dropdown) {
+      dropdown.querySelectorAll('input[type="checkbox"].group-checkbox').forEach(checkbox => {
+        const groupName = checkbox.getAttribute('data-group');
+        const groupColumns = Array.from(dropdown.querySelectorAll(`input[data-group="${groupName}"].column-checkbox`));
+        const checkedCount = groupColumns.filter(checkbox => checkbox.checked).length;
+
+        if (checkedCount > 0 && checkedCount < groupColumns.length) {
+          checkbox.indeterminate = true;
+        } else {
+          checkbox.indeterminate = false;
+        }
+      });
+    }
+
     function showAlternativePaths(clickedPathId) {
       const clickedPath = nodeMap.get(clickedPathId);
       if (!clickedPath) return;
@@ -679,7 +707,7 @@
       // === Формируем HTML ===
       let controlsHTML = `
         <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
-          <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..." 
+          <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..."
                 style="flex:1; min-width:150px; padding:6px 10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
           <div style="position:relative; display:inline-block;">
             <button id="toggle-columns-btn" type="button"
@@ -687,12 +715,7 @@
               ⚙️ Столбцы
             </button>
             <div id="columns-dropdown" style="display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #ccc; border-radius:3px; z-index:1000; max-height:300px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
-              ${allColumns.map(col => `
-                <label style="display:flex; align-items:center; padding:6px 10px; cursor:pointer; white-space:nowrap; gap:6px;">
-                  <input type="checkbox" data-column="${col}" ${visibleColumns.has(col) ? 'checked' : ''}>
-                  ${col}
-                </label>
-              `).join('')}
+              ${renderGroupedColumns(allColumns, visibleColumns)}
             </div>
           </div>
         </div>
@@ -760,17 +783,51 @@
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+
+        // Установка indeterminate состояния для групповых чекбоксов при открытии
+        if (dropdown.style.display === 'block') {
+          setTimeout(() => {
+            setGroupIndeterminateStates(dropdown);
+          }, 0);
+        }
       });
 
       // Обработка чекбоксов
       dropdown.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
         checkbox.addEventListener('change', function() {
-          const col = this.getAttribute('data-column');
-          if (this.checked) {
-            visibleColumns.add(col);
-          } else {
-            visibleColumns.delete(col);
+          if (this.classList.contains('column-checkbox')) {
+            // Обработка индивидуального столбца
+            const col = this.getAttribute('data-column');
+            if (this.checked) {
+              visibleColumns.add(col);
+            } else {
+              visibleColumns.delete(col);
+            }
+          } else if (this.classList.contains('group-checkbox')) {
+            // Обработка группы столбцов
+            const groupName = this.getAttribute('data-group');
+            const groupColumns = Array.from(dropdown.querySelectorAll(`input[data-group="${groupName}"].column-checkbox`));
+
+            if (this.checked) {
+              // Включить все столбцы в группе
+              groupColumns.forEach(checkbox => {
+                const col = checkbox.getAttribute('data-column');
+                visibleColumns.add(col);
+                checkbox.checked = true;
+              });
+            } else {
+              // Выключить все столбцы в группе
+              groupColumns.forEach(checkbox => {
+                const col = checkbox.getAttribute('data-column');
+                visibleColumns.delete(col);
+                checkbox.checked = false;
+              });
+            }
+
+            // Обновить indeterminate состояние для всех групп
+            setGroupIndeterminateStates(dropdown);
           }
+
           // Перерисовать таблицу один раз после изменения
           showAlternativePaths(clickedPathId);
         });
