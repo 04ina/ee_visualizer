@@ -1006,35 +1006,73 @@
         const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
         if (th) {
           th.addEventListener('click', () => {
-            const currentSort = th.classList.contains('sort-asc') ? 'asc' :
-                                th.classList.contains('sort-desc') ? 'desc' : null;
-            const newSort = current_sort === 'asc' ? 'desc' : 'asc';
+            // Determine the new sort direction based on current state
+            let newSort;
+            if (th.classList.contains('sort-asc')) {
+              newSort = 'desc';
+            } else if (th.classList.contains('sort-desc')) {
+              newSort = null; // Remove sorting
+            } else {
+              newSort = 'asc'; // Start with ascending
+            }
 
+            // Clear all sort indicators
             container.querySelectorAll('#table-wrapper th').forEach(t => {
               t.classList.remove('sort-asc', 'sort-desc');
             });
-            th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
 
-            const tbody = th.closest('table').querySelector('tbody');
-            const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+            // Apply new sort indicator if not removing sort
+            if (newSort) {
+              th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
 
-            visibleRows.sort((a, b) => {
-              const aValue = a.cells[idx]?.textContent.trim() || '';
-              const bValue = b.cells[idx]?.textContent.trim() || '';
+            // Only sort if we have a sort direction
+            if (newSort) {
+              const tbody = th.closest('table').querySelector('tbody');
+              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
 
-              let aNum = parseFloat(aValue);
-              let bNum = parseFloat(bValue);
+              visibleRows.sort((a, b) => {
+                const aValue = a.cells[idx]?.textContent.trim() || '';
+                const bValue = b.cells[idx]?.textContent.trim() || '';
 
-              if (!isNaN(aNum) && !isNaN(bNum)) {
-                return newSort === 'asc' ? aNum - bNum : bNum - aNum;
-              } else {
-                return newSort === 'asc'
-                  ? aValue.localeCompare(bValue)
-                  : bValue.localeCompare(aValue);
-              }
-            });
+                let aNum = parseFloat(aValue);
+                let bNum = parseFloat(bValue);
 
-            visibleRows.forEach(row => tbody.appendChild(row));
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                  return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+                } else {
+                  return newSort === 'asc'
+                    ? aValue.localeCompare(bValue)
+                    : bValue.localeCompare(aValue);
+                }
+              });
+
+              // Append sorted rows back to tbody
+              visibleRows.forEach(row => tbody.appendChild(row));
+            } else {
+              // If removing sort, restore original order without re-rendering
+              // Get the table wrapper to preserve scroll position
+              const tableWrapper = document.getElementById('table-wrapper');
+              const verticalScroll = tableWrapper.scrollTop;
+              const horizontalScroll = tableWrapper.scrollLeft;
+
+              // Get the tbody element
+              const tbody = th.closest('table').querySelector('tbody');
+              // Get all rows and append them back in their original order
+              const allRows = Array.from(tbody.children);
+              allRows.sort((a, b) => {
+                const aPathId = parseInt(a.getAttribute('data-path-id'));
+                const bPathId = parseInt(b.getAttribute('data-path-id'));
+                return aPathId - bPathId;
+              });
+
+              // Append rows back in original order
+              allRows.forEach(row => tbody.appendChild(row));
+
+              // Restore scroll positions
+              tableWrapper.scrollTop = verticalScroll;
+              tableWrapper.scrollLeft = horizontalScroll;
+            }
           });
         }
       });
