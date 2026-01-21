@@ -83,8 +83,16 @@
     #empty-container {
       flex: 1;
       background: #f0f0f0;
-      overflow: auto;
+      overflow: hidden;
       padding: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #table-container {
+      flex: 1;
+      overflow: auto;
+      margin-top: 10px;
     }
     table {
       width: 100%;
@@ -111,6 +119,7 @@
     #table-wrapper {
       overflow-x: auto; /* Enable horizontal scrolling when needed */
       width: 100%;
+      height: 100%;
     }
     th.sort-asc::after {
       content: ' ↑';
@@ -1164,7 +1173,8 @@
 
             for (const [relId, relObj] of Object.entries(levelObj.relations)) {
               const relKey = `${levelKey}-R${relId}`;
-              relationNodes.set(relKey, { id: `relation-${relKey}`, label: `rel=${relObj.name}` });
+              const relLabel = relObj.name ? `rel=${relObj.name}` : `rel_id=${relId}`;
+              relationNodes.set(relKey, { id: `relation-${relKey}`, label: relLabel });
 
             for (const path of relObj.paths) {
               const id = String(path.path_id);
@@ -1173,7 +1183,7 @@
                 _relKey: relKey,
                 _levelKey: levelKey,
                 _subKey: subKey,
-                rel_name: relObj.name  
+                rel_name: relObj.name
               });
             }
             }

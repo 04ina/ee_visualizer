@@ -42,7 +42,7 @@ def main(csv_path):
                     "child_paths": [] if record["child_paths"] == '\\N' else [
                         int(x.strip()) for x in record["child_paths"].strip("{}").split(",") if x.strip()
                     ],
-                    "rel_name": clean(record["rel_name"]) or f"rel_{record['rel_id']}",
+                    "rel_name": clean(record["rel_name"]),
                     "rel_alias": clean(record["rel_alias"]),
                     "startup_cost": parse_field(record["startup_cost"], float),
                     "total_cost": parse_field(record["total_cost"], float),
