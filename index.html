@@ -91,17 +91,26 @@
       border-collapse: collapse;
       font-family: Arial, sans-serif;
       font-size: 12px;
+      table-layout: auto; /* Allow table to expand based on content */
     }
     th, td {
       border: 1px solid #ccc;
       padding: 6px 8px;
       text-align: left;
+      white-space: nowrap; /* Prevent text wrapping */
+      max-width: 200px; /* Limit cell width */
+      overflow: hidden;
+      text-overflow: ellipsis; /* Show ellipsis for long content */
     }
     th {
       background-color: #eee;
       position: sticky;
       top: 0;
       cursor: pointer;
+    }
+    #table-wrapper {
+      overflow-x: auto; /* Enable horizontal scrolling when needed */
+      width: 100%;
     }
     th.sort-asc::after {
       content: ' ↑';
@@ -706,7 +715,7 @@
       const columnGroups = {
         "Иерархия и идентификаторы": ["query_id", "subquery_id", "subquery_level", "level", "rel_id", "path_id", "child_paths"],
         "Основные характеристики": ["startup_cost", "total_cost", "rows", "width"],
-        "Результат работы add_path": ["add_path_result", "displaced_by", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp", "cost_cmp"],
+        "Результат работы add_path": ["add_path_result", "displaced_by", "cost_cmp", "fuzz_factor", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"],
         "Другие": []
       };
 
@@ -793,7 +802,7 @@
         "path_type", "rel_name", "rel_alias", "indexoid", "level",
         "child_paths", "startup_cost", "total_cost", "rows", "width",
         "add_path_result", "displaced_by",
-        "cost_cmp", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
+        "cost_cmp", "fuzz_factor", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
       ];
 
       const allKeys = new Set();
@@ -865,7 +874,12 @@
             if (Number.isInteger(value)) {
               displayValue = String(value);
             } else {
-              displayValue = value.toFixed(2);
+              // Preserve precision for specific columns like fuzz_factor
+              if (col === 'fuzz_factor') {
+                displayValue = String(value);
+              } else {
+                displayValue = value.toFixed(2);
+              }
             }
           } else {
             displayValue = String(value);

@@ -7,7 +7,7 @@ def main(csv_path):
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
         "path_type", "child_paths", "startup_cost", "total_cost", "rows",
         "width", "rel_name", "rel_alias", "indexoid", "level",
-        "add_path_result", "displaced_by", "cost_cmp", "pathkeys_cmp",
+        "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor", "pathkeys_cmp",
         "bms_cmp", "rows_cmp", "parallel_safe_cmp"
     ]
 
@@ -52,6 +52,7 @@ def main(csv_path):
                     "add_path_result": clean(record["add_path_result"]),
                     "displaced_by": parse_field(record["displaced_by"], int),
                     "cost_cmp": clean(record["cost_cmp"]),
+                    "fuzz_factor": parse_field(record["fuzz_factor"], float),
                     "pathkeys_cmp": clean(record["pathkeys_cmp"]),
                     "bms_cmp": clean(record["bms_cmp"]),
                     "rows_cmp": clean(record["rows_cmp"]),
