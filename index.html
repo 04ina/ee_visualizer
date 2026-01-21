@@ -65,6 +65,9 @@
     #explain-container .selected {
       background-color: #cce6ff !important;
     }
+    #explain-container .child-highlight {
+      background-color: #e3f3fd !important;
+    }
     #explain-container .section-header {
       font-weight: bold;
       margin-top: 10px;
@@ -704,12 +707,17 @@
       explainContainer.querySelectorAll('.path-line').forEach(el => {
         el.addEventListener('click', () => {
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
           cy.elements('.selected-in-tree').removeClass('selected-in-tree');
 
           el.classList.add('selected');
           const pathId = el.getAttribute('data-path-id');
           currentSelectedPathId = pathId;
+
+          // Highlight child nodes in the EXPLAIN view
+          highlightChildNodesInExplain(pathId);
+
           showAlternativePaths(pathId);
           highlightPathInTree(pathId);
         });
@@ -1085,6 +1093,7 @@
 
           // Сброс выделения в EXPLAIN и таблице
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
 
           // Выделение в EXPLAIN
@@ -1096,6 +1105,11 @@
 
           currentSelectedPathId = pathId;
           highlightPathInTree(pathId);
+
+          // Highlight child nodes in the EXPLAIN view if the clicked path is part of the best plan
+          if (bestPathIds.has(pathId)) {
+            highlightChildNodesInExplain(pathId);
+          }
         });
       });
     }
@@ -1127,6 +1141,26 @@
       if (targetId) {
         cy.getElementById(targetId).addClass('selected-in-tree');
       }
+    }
+
+    function highlightChildNodesInExplain(parentPathId) {
+      // Remove previous child highlights
+      document.querySelectorAll('.path-line.child-highlight').forEach(el => {
+        el.classList.remove('child-highlight');
+      });
+
+      const parentPath = nodeMap.get(parentPathId);
+      if (!parentPath || !Array.isArray(parentPath.child_paths) || parentPath.child_paths.length === 0) {
+        return;
+      }
+
+      // Find and highlight child nodes in the EXPLAIN view
+      parentPath.child_paths.forEach(childId => {
+        const childElement = document.querySelector(`.path-line[data-path-id="${childId}"]`);
+        if (childElement) {
+          childElement.classList.add('child-highlight');
+        }
+      });
     }
 
     function makeResizable() {
