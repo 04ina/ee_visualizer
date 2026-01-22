@@ -721,6 +721,49 @@
           showAlternativePaths(pathId);
           highlightPathInTree(pathId);
         });
+
+        // Double-click to focus on the corresponding path in the graph
+        el.addEventListener('dblclick', () => {
+          const pathId = el.getAttribute('data-path-id');
+          if (pathId) {
+            // Move camera to focus on the corresponding node in the graph
+            const node = cy.getElementById(pathId);
+            if (node && node.length > 0) {
+              // Animate the camera to focus on the node but maintain a zoom level that shows surrounding nodes
+              cy.animate({
+                fit: {
+                  eles: node,
+                  padding: 459  // Increased padding to show more surrounding context
+                },
+                duration: 500
+              });
+            } else {
+              // If the exact path node isn't visible, try to find and focus on its parent containers
+              const path = nodeMap.get(pathId);
+              if (path) {
+                const idsToTry = [
+                  `relation-${path._relKey}`,
+                  `level-${path._levelKey}`,
+                  `subquery-${path._subKey}`
+                ];
+
+                for (const id of idsToTry) {
+                  const containerNode = cy.getElementById(id);
+                  if (containerNode && containerNode.length > 0) {
+                    cy.animate({
+                      fit: {
+                        eles: containerNode,
+                        padding: 459  // Increased padding to show more surrounding context
+                      },
+                      duration: 500
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        });
       });
     }
 
@@ -1109,6 +1152,49 @@
           // Highlight child nodes in the EXPLAIN view if the clicked path is part of the best plan
           if (bestPathIds.has(pathId)) {
             highlightChildNodesInExplain(pathId);
+          }
+        });
+
+        // Double-click to focus on the corresponding path in the graph
+        row.addEventListener('dblclick', () => {
+          const pathId = row.getAttribute('data-path-id');
+          if (pathId) {
+            // Move camera to focus on the corresponding node in the graph
+            const node = cy.getElementById(pathId);
+            if (node && node.length > 0) {
+              // Animate the camera to focus on the node but maintain a zoom level that shows surrounding nodes
+              cy.animate({
+                fit: {
+                  eles: node,
+                  padding: 459  // Increased padding to show more surrounding context
+                },
+                duration: 500
+              });
+            } else {
+              // If the exact path node isn't visible, try to find and focus on its parent containers
+              const path = nodeMap.get(pathId);
+              if (path) {
+                const idsToTry = [
+                  `relation-${path._relKey}`,
+                  `level-${path._levelKey}`,
+                  `subquery-${path._subKey}`
+                ];
+
+                for (const id of idsToTry) {
+                  const containerNode = cy.getElementById(id);
+                  if (containerNode && containerNode.length > 0) {
+                    cy.animate({
+                      fit: {
+                        eles: containerNode,
+                        padding: 409  // Increased padding to show more surrounding context
+                      },
+                      duration: 500
+                    });
+                    break;
+                  }
+                }
+              }
+            }
           }
         });
       });
@@ -1601,6 +1687,20 @@
           });
         });
 
+        // Double-click on path nodes to focus on them
+        cy.on('dblclick', 'node.path-node', function (evt) {
+          const node = evt.target;
+
+          // First, fit to the node with padding to show context
+          cy.animate({
+            fit: {
+              eles: node,
+              padding: 459  // Increased padding to show more surrounding context
+            },
+            duration: 500
+          });
+        });
+
         cy.on('tap', 'node.path-group', function (evt) {
           const id = evt.target.id();
           if (expanded.has(id)) {
@@ -1625,7 +1725,7 @@
         document.getElementById('explain-container').textContent = 'Ошибка загрузки данных.';
       });
 
-      // Закрытие меню столбцов при клике вне его
+      // Закрытие меню столбцов ��ри клике вне его
       document.addEventListener('click', function(e) {
         const btn = document.getElementById('toggle-columns-btn');
         const dropdown = document.getElementById('columns-dropdown');
