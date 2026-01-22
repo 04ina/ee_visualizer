@@ -102,16 +102,16 @@
       border-collapse: collapse;
       font-family: Arial, sans-serif;
       font-size: 12px;
-      table-layout: auto; /* Allow table to expand based on content */
+      table-layout: auto;
     }
     th, td {
       border: 1px solid #ccc;
       padding: 6px 8px;
       text-align: left;
-      white-space: nowrap; /* Prevent text wrapping */
-      max-width: 200px; /* Limit cell width */
+      white-space: nowrap;
+      max-width: 200px;
       overflow: hidden;
-      text-overflow: ellipsis; /* Show ellipsis for long content */
+      text-overflow: ellipsis;
     }
     th {
       background-color: #eee;
@@ -120,7 +120,7 @@
       cursor: pointer;
     }
     #table-wrapper {
-      overflow-x: auto; /* Enable horizontal scrolling when needed */
+      overflow-x: auto;
       width: 100%;
       height: 100%;
     }
@@ -202,8 +202,8 @@
     let bestRelKeys = new Set();
     let currentSelectedPathId = null;
     let bestPathIds = new Set();
-    let bestSubqueryIds = new Set(); // Track subquery IDs included in best paths
-    let currentLayoutDirection = 'LR'; // или 'TB'
+    let bestSubqueryIds = new Set();
+    let currentLayoutDirection = 'LR';
 
     function isPathVisible(pathIdStr) {
       const path = nodeMap.get(pathIdStr);
@@ -433,7 +433,7 @@
         }
       });
 
-      // Строим рёбра ТОЛЬКО между реально существующими узлами
+      // Строим ребра только между реально существующими узлами
       for (const [srcId, path] of nodeMap.entries()) {
         if (!addedNodeIds.has(srcId) || !Array.isArray(path.child_paths)) continue;
         for (const childId of path.child_paths) {
@@ -497,7 +497,6 @@
       bestPathIds.clear();
       bestSubqueryIds.clear();
 
-      // First, find the main query best plan (subquery_level = 1)
       const mainCandidateRoots = [];
       for (const path of nodeMap.values()) {
         if (path.subquery_level === 1 && path.level === 0) {
@@ -510,7 +509,6 @@
         return;
       }
 
-      // Choose the main best root: highest rel_id, then lowest cost
       const mainBestRoot = mainCandidateRoots.reduce((a, b) => {
         const aRelId = a.rel_id ?? -Infinity;
         const bRelId = b.rel_id ?? -Infinity;
@@ -522,11 +520,10 @@
         return a.total_cost < b.total_cost ? a : b;
       });
 
-      // Collect the entire main best path tree
       function collectPathTree(p) {
         bestPathIds.add(String(p.path_id));
         bestRelKeys.add(p._relKey);
-        bestSubqueryIds.add(p.subquery_id); // Track which subquery this path belongs to
+        bestSubqueryIds.add(p.subquery_id);
 
         if (Array.isArray(p.child_paths)) {
           for (const childId of p.child_paths) {
@@ -537,15 +534,11 @@
       }
 
       collectPathTree(mainBestRoot);
-      allBestRoots = [mainBestRoot]; // Main query best root
+      allBestRoots = [mainBestRoot];
 
-      // Now also include paths from independent CTE plans as "best" for their own subqueries
-      // This ensures they appear as "best" in the tree visualization
       const unincludedSubqueries = getUnincludedSubqueries();
       for (const root of unincludedSubqueries) {
-        // Collect the entire path tree for this independent CTE plan as well
         function collectIndependentPathTree(p) {
-          // Only add to best sets if not already added (to avoid duplicates)
           if (!bestPathIds.has(String(p.path_id))) {
             bestPathIds.add(String(p.path_id));
             bestRelKeys.add(p._relKey);
@@ -564,7 +557,6 @@
       }
     }
 
-    // Function to get all subquery IDs present in the data
     function getAllSubqueryIds() {
       const allSubqueryIds = new Set();
       for (const path of nodeMap.values()) {
@@ -573,12 +565,10 @@
       return allSubqueryIds;
     }
 
-    // Function to get subqueries that are NOT referenced by the main plan
     function getUnincludedSubqueries() {
       const allSubqueryIds = getAllSubqueryIds();
       const unincludedSubqueries = [];
 
-      // Determine which subqueries are referenced by the main plan
       const referencedSubqueryIds = new Set();
       for (const pathId of bestPathIds) {
         const path = nodeMap.get(pathId);
@@ -586,7 +576,6 @@
           for (const childId of path.child_paths) {
             const child = nodeMap.get(String(childId));
             if (child && child.subquery_id !== path.subquery_id) {
-              // Child is from a different subquery (likely a CTE reference)
               referencedSubqueryIds.add(child.subquery_id);
             }
           }
@@ -594,14 +583,12 @@
       }
 
       for (const subqueryId of allSubqueryIds) {
-        // Only include subqueries that are CTEs/subqueries (not main query) and not referenced by main plan
         const isMainQuery = Array.from(allBestRoots).some(root => root.subquery_id == subqueryId);
         if (!isMainQuery && !referencedSubqueryIds.has(subqueryId)) {
-          // Find the root path for this subquery to display as a separate best plan
           for (const path of nodeMap.values()) {
             if (path.subquery_id == subqueryId && path.level === 0) {
               unincludedSubqueries.push(path);
-              break; // Just take the first root path for this subquery
+              break;
             }
           }
         }
@@ -616,11 +603,10 @@
         return;
       }
 
-      const lines = []; // { text, pathId }
+      const lines = [];
 
-      // Render main query plans (subquery_level = 1)
       if (allBestRoots.length > 0) {
-        lines.push({ text: "=== Основной план запроса ===", pathId: null });
+        lines.push({ text: "Основной план", pathId: null });
 
         allBestRoots.forEach((root, idx) => {
           if (idx > 0) lines.push({ text: "", pathId: null });
@@ -656,11 +642,10 @@
         });
       }
 
-      // Get and render CTE/subquery plans that are NOT part of the best path tree
       const unincludedSubqueries = getUnincludedSubqueries();
       if (unincludedSubqueries.length > 0) {
         if (lines.length > 0) lines.push({ text: "", pathId: null });
-        lines.push({ text: "=== Вложенные планы (CTE, подзапросы), НЕ используемые в основном плане ===", pathId: null });
+        lines.push({ text: "CTEs", pathId: null });
 
         unincludedSubqueries.forEach((root, idx) => {
           if (idx > 0) lines.push({ text: "", pathId: null });
@@ -715,30 +700,25 @@
           const pathId = el.getAttribute('data-path-id');
           currentSelectedPathId = pathId;
 
-          // Highlight child nodes in the EXPLAIN view
           highlightChildNodesInExplain(pathId);
 
           showAlternativePaths(pathId);
           highlightPathInTree(pathId);
         });
 
-        // Double-click to focus on the corresponding path in the graph
         el.addEventListener('dblclick', () => {
           const pathId = el.getAttribute('data-path-id');
           if (pathId) {
-            // Move camera to focus on the corresponding node in the graph
             const node = cy.getElementById(pathId);
             if (node && node.length > 0) {
-              // Animate the camera to focus on the node but maintain a zoom level that shows surrounding nodes
               cy.animate({
-                fit: {
-                  eles: node,
-                  padding: 459  // Increased padding to show more surrounding context
+                center: {
+                  eles: node
                 },
+                zoom: 1.2,
                 duration: 500
               });
             } else {
-              // If the exact path node isn't visible, try to find and focus on its parent containers
               const path = nodeMap.get(pathId);
               if (path) {
                 const idsToTry = [
@@ -751,10 +731,10 @@
                   const containerNode = cy.getElementById(id);
                   if (containerNode && containerNode.length > 0) {
                     cy.animate({
-                      fit: {
-                        eles: containerNode,
-                        padding: 459  // Increased padding to show more surrounding context
+                      center: {
+                        eles: containerNode
                       },
+                      zoom: 1.2,
                       duration: 500
                     });
                     break;
@@ -856,13 +836,12 @@
         return;
       }
 
-      // === ФИКСИРОВАННЫЙ ПОРЯДОК СТОЛБЦОВ ===
       const COLUMN_ORDER = [
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
         "path_type", "rel_name", "rel_alias", "indexoid", "level",
         "child_paths", "startup_cost", "total_cost", "rows", "width",
-        "add_path_result", "displaced_by",
-        "cost_cmp", "fuzz_factor", "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
+        "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor", 
+        "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
       ];
 
       const allKeys = new Set();
@@ -898,7 +877,7 @@
         }
       }
 
-      // === Формируем HTML ===
+      // Формируем HTML 
       let controlsHTML = `
         <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
           <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..."
@@ -1057,27 +1036,23 @@
         const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
         if (th) {
           th.addEventListener('click', () => {
-            // Determine the new sort direction based on current state
             let newSort;
             if (th.classList.contains('sort-asc')) {
               newSort = 'desc';
             } else if (th.classList.contains('sort-desc')) {
-              newSort = null; // Remove sorting
+              newSort = null;
             } else {
-              newSort = 'asc'; // Start with ascending
+              newSort = 'asc';
             }
 
-            // Clear all sort indicators
             container.querySelectorAll('#table-wrapper th').forEach(t => {
               t.classList.remove('sort-asc', 'sort-desc');
             });
 
-            // Apply new sort indicator if not removing sort
             if (newSort) {
               th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
             }
 
-            // Only sort if we have a sort direction
             if (newSort) {
               const tbody = th.closest('table').querySelector('tbody');
               const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
@@ -1098,18 +1073,13 @@
                 }
               });
 
-              // Append sorted rows back to tbody
               visibleRows.forEach(row => tbody.appendChild(row));
             } else {
-              // If removing sort, restore original order without re-rendering
-              // Get the table wrapper to preserve scroll position
               const tableWrapper = document.getElementById('table-wrapper');
               const verticalScroll = tableWrapper.scrollTop;
               const horizontalScroll = tableWrapper.scrollLeft;
 
-              // Get the tbody element
               const tbody = th.closest('table').querySelector('tbody');
-              // Get all rows and append them back in their original order
               const allRows = Array.from(tbody.children);
               allRows.sort((a, b) => {
                 const aPathId = parseInt(a.getAttribute('data-path-id'));
@@ -1117,10 +1087,8 @@
                 return aPathId - bPathId;
               });
 
-              // Append rows back in original order
               allRows.forEach(row => tbody.appendChild(row));
 
-              // Restore scroll positions
               tableWrapper.scrollTop = verticalScroll;
               tableWrapper.scrollLeft = horizontalScroll;
             }
@@ -1149,29 +1117,24 @@
           currentSelectedPathId = pathId;
           highlightPathInTree(pathId);
 
-          // Highlight child nodes in the EXPLAIN view if the clicked path is part of the best plan
           if (bestPathIds.has(pathId)) {
             highlightChildNodesInExplain(pathId);
           }
         });
 
-        // Double-click to focus on the corresponding path in the graph
         row.addEventListener('dblclick', () => {
           const pathId = row.getAttribute('data-path-id');
           if (pathId) {
-            // Move camera to focus on the corresponding node in the graph
             const node = cy.getElementById(pathId);
             if (node && node.length > 0) {
-              // Animate the camera to focus on the node but maintain a zoom level that shows surrounding nodes
               cy.animate({
-                fit: {
-                  eles: node,
-                  padding: 459  // Increased padding to show more surrounding context
+                center: {
+                  eles: node
                 },
+                zoom: 1.2,
                 duration: 500
               });
             } else {
-              // If the exact path node isn't visible, try to find and focus on its parent containers
               const path = nodeMap.get(pathId);
               if (path) {
                 const idsToTry = [
@@ -1184,10 +1147,10 @@
                   const containerNode = cy.getElementById(id);
                   if (containerNode && containerNode.length > 0) {
                     cy.animate({
-                      fit: {
-                        eles: containerNode,
-                        padding: 409  // Increased padding to show more surrounding context
+                      center: {
+                        eles: containerNode
                       },
+                      zoom: 1.2,
                       duration: 500
                     });
                     break;
@@ -1230,7 +1193,6 @@
     }
 
     function highlightChildNodesInExplain(parentPathId) {
-      // Remove previous child highlights
       document.querySelectorAll('.path-line.child-highlight').forEach(el => {
         el.classList.remove('child-highlight');
       });
@@ -1240,7 +1202,6 @@
         return;
       }
 
-      // Find and highlight child nodes in the EXPLAIN view
       parentPath.child_paths.forEach(childId => {
         const childElement = document.querySelector(`.path-line[data-path-id="${childId}"]`);
         if (childElement) {
@@ -1385,7 +1346,6 @@
             expandNode(root);
           }
 
-          // Also expand independent CTE plans that are not part of the main plan
           const unincludedSubqueries = getUnincludedSubqueries();
           for (const root of unincludedSubqueries) {
             expandNode(root);
@@ -1427,12 +1387,10 @@
             }
           }
 
-          // Expand all best roots (main query only)
           for (const root of allBestRoots) {
             expandNode(root);
           }
 
-          // Also expand independent CTE plans that are not part of the main plan
           const unincludedSubqueries = getUnincludedSubqueries();
           for (const root of unincludedSubqueries) {
             expandNode(root);
@@ -1687,16 +1645,14 @@
           });
         });
 
-        // Double-click on path nodes to focus on them
         cy.on('dblclick', 'node.path-node', function (evt) {
           const node = evt.target;
 
-          // First, fit to the node with padding to show context
           cy.animate({
-            fit: {
-              eles: node,
-              padding: 459  // Increased padding to show more surrounding context
+            center: {
+              eles: node
             },
+            zoom: 1.2,
             duration: 500
           });
         });
@@ -1725,14 +1681,14 @@
         document.getElementById('explain-container').textContent = 'Ошибка загрузки данных.';
       });
 
-      // Закрытие меню столбцов ��ри клике вне его
+      // Закрытие меню столбцов при клике вне его
       document.addEventListener('click', function(e) {
         const btn = document.getElementById('toggle-columns-btn');
         const dropdown = document.getElementById('columns-dropdown');
 
         // Если меню существует и открыто
         if (dropdown && dropdown.style.display === 'block') {
-          // Если клик НЕ по кнопке и НЕ по меню — закрыть
+          // Если клик НЕ по кнопке и НЕ по меню -- закрыть
           if (!btn?.contains(e.target) && !dropdown.contains(e.target)) {
             dropdown.style.display = 'none';
           }
