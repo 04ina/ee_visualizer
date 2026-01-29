@@ -1601,12 +1601,84 @@
       // Add click functionality to rows
       container.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
         row.addEventListener('click', () => {
-          // For now, just highlight the row
+          // Clear all selections and highlights
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+          cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+
+          // Clear the current selected path
+          currentSelectedPathId = null;
+
+          // Highlight the clicked relation row
           row.classList.add('selected-row');
 
           // Remove the corresponding relation highlight when clicking on a relation row
           document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
+          // Get the relation data from the clicked row
+          const cells = row.querySelectorAll('td');
+          const subqueryIdCell = cells[0]; // subquery_id is the first column
+          const levelCell = cells[2];     // level is the third column
+          const relIdCell = cells[3];     // rel_id is the fourth column
+
+          if (subqueryIdCell && levelCell && relIdCell) {
+            const subqueryId = parseInt(subqueryIdCell.textContent.trim());
+            const level = parseInt(levelCell.textContent.trim());
+            const relId = parseInt(relIdCell.textContent.trim());
+
+            // Find a path that belongs to this relation to use as reference
+            let referencePath = null;
+            for (const [pathId, path] of nodeMap.entries()) {
+              if (path.subquery_id === subqueryId && path.level === level && path.rel_id === relId) {
+                referencePath = path;
+                break;
+              }
+            }
+
+            if (referencePath) {
+              // Switch to alternative paths table showing paths for this relation
+              currentTableType = 'alternative-paths';
+
+              // Update button states
+              container.querySelectorAll('.table-control-btn').forEach(b => {
+                b.classList.remove('active');
+              });
+              const altPathsBtn = container.querySelector('.table-control-btn[data-table-type="alternative-paths"]');
+              if (altPathsBtn) {
+                altPathsBtn.classList.add('active');
+              }
+
+              // Show alternative paths for this relation
+              showAlternativePathsForRelation(subqueryId, level, relId, referencePath._relKey);
+
+              // Center the camera on the relation node in the graph
+              const relationNodeId = `relation-${referencePath._relKey}`;
+              const relationNode = cy.getElementById(relationNodeId);
+              if (relationNode && relationNode.length > 0) {
+                cy.animate({
+                  center: {
+                    eles: relationNode
+                  },
+                  zoom: 1.2,
+                  duration: 500
+                });
+              } else {
+                // If the relation node doesn't exist, try to find the parent containers
+                const levelNodeId = `level-${referencePath._levelKey}`;
+                const levelNode = cy.getElementById(levelNodeId);
+                if (levelNode && levelNode.length > 0) {
+                  cy.animate({
+                    center: {
+                      eles: levelNode
+                    },
+                    zoom: 1.2,
+                    duration: 500
+                  });
+                }
+              }
+            }
+          }
         });
       });
 
@@ -1617,7 +1689,7 @@
     }
 
     function highlightPathInTree(pathId) {
-      // Сброс старой подсветки
+      // Сброс старой под����ветки
       cy.elements('.selected-in-tree').removeClass('selected-in-tree');
 
       const path = nodeMap.get(pathId);
@@ -1660,6 +1732,403 @@
         if (childElement) {
           childElement.classList.add('child-highlight');
         }
+      });
+    }
+
+    function showAlternativePathsForRelation(subqueryId, level, relId, relKey) {
+      // Get all paths that belong to this relation
+      const alternatives = Array.from(nodeMap.values()).filter(p =>
+        p.subquery_id === subqueryId && p.level === level && p.rel_id === relId
+      );
+
+      const container = document.getElementById('empty-container');
+      if (alternatives.length === 0) {
+        container.innerHTML = 'Альтернативные пути не найдены для выбранного отношения.';
+        return;
+      }
+
+      const COLUMN_ORDER = [
+        "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
+        "path_type", "rel_name", "rel_alias", "indexoid", "level",
+        "child_paths", "startup_cost", "total_cost", "rows", "width",
+        "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor",
+        "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
+      ];
+
+      const allKeys = new Set();
+      for (const p of alternatives) {
+        for (const key in p) {
+          if (!key.startsWith('_')) {
+            allKeys.add(key);
+          }
+        }
+      }
+
+      const orderedColumns = COLUMN_ORDER.filter(col => allKeys.has(col));
+      const extraKeys = Array.from(allKeys).filter(k => !COLUMN_ORDER.includes(k));
+      const allColumns = [...orderedColumns, ...extraKeys];
+
+      // Инициализируем глобальные настройки один раз
+      if (globalVisibleColumns === null) {
+        globalVisibleColumns = new Set(allColumns);
+      } else {
+        // Удаляем столбцы, которых больше нет в текущих данных
+        for (const col of Array.from(globalVisibleColumns)) {
+          if (!allColumns.includes(col)) {
+            globalVisibleColumns.delete(col);
+          }
+        }
+      }
+      const visibleColumns = globalVisibleColumns;
+
+      // Удаляем столбцы, которых больше нет в данных
+      for (const col of Array.from(visibleColumns)) { // ← важно: Array.from, чтобы избежать ошибки при удалении
+        if (!allColumns.includes(col)) {
+          visibleColumns.delete(col);
+        }
+      }
+
+      // Формируем HTML
+      let controlsHTML = `
+        <div id="table-controls">
+          <button class="table-control-btn ${currentTableType === 'alternative-paths' ? 'active' : ''}" data-table-type="alternative-paths">Альтернативные пути</button>
+          <button class="table-control-btn ${currentTableType === 'relations' ? 'active' : ''}" data-table-type="relations">Отношения</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; margin-top:10px;">
+          <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..."
+                style="flex:1; min-width:150px; padding:6px 10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
+          <div style="position:relative; display:inline-block;">
+            <button id="toggle-columns-btn" type="button"
+                    style="padding:6px 10px; border:1px solid #ccc; background:#fff; border-radius:3px; cursor:pointer; font-size:13px;">
+              ⚙️ Столбцы
+            </button>
+            <div id="columns-dropdown" style="display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #ccc; border-radius:3px; z-index:1000; max-height:300px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+              ${renderGroupedColumns(allColumns, visibleColumns)}
+            </div>
+          </div>
+        </div>
+      `;
+
+      let tableHTML = `<div id="table-wrapper" style="max-height:100%; overflow:auto;"><table><thead><tr>`;
+
+      // Только видимые столбцы
+      const displayedColumns = allColumns.filter(col => visibleColumns.has(col));
+      displayedColumns.forEach(col => {
+        tableHTML += `<th data-column="${col}">${col}</th>`;
+      });
+      tableHTML += '</tr></thead><tbody>';
+
+      alternatives.forEach(p => {
+        // No path is selected initially when showing paths for a relation
+        tableHTML += `<tr data-path-id="${p.path_id}">`;
+        displayedColumns.forEach(col => {
+          const value = p[col] !== undefined ? p[col] : '';
+          let displayValue;
+          if (typeof value === 'number') {
+            if (Number.isInteger(value)) {
+              displayValue = String(value);
+            } else {
+              // Preserve precision for specific columns like fuzz_factor
+              if (col === 'fuzz_factor') {
+                displayValue = String(value);
+              } else {
+                displayValue = value.toFixed(2);
+              }
+            }
+          } else {
+            displayValue = String(value);
+          }
+          tableHTML += `<td>${displayValue}</td>`;
+        });
+        tableHTML += '</tr>';
+      });
+
+      tableHTML += '</tbody></table></div>';
+
+      // Сохраняем состояние меню: открыто ли и позицию прокрутки
+      const oldDropdown = document.getElementById('columns-dropdown');
+      const wasDropdownOpen = oldDropdown?.style.display === 'block';
+      const scrollPos = oldDropdown?.scrollTop || 0;
+
+      // Clear previous highlights before rendering the new table
+      document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
+      // Перерисовываем
+      container.innerHTML = `
+        <div id="columns-controls">${controlsHTML}</div>
+        <div id="table-container">${tableHTML}</div>
+      `;
+
+      // Восстанавливаем состояние
+      if (wasDropdownOpen) {
+        const newDropdown = document.getElementById('columns-dropdown');
+        if (newDropdown) {
+          newDropdown.style.display = 'block';
+          newDropdown.scrollTop = scrollPos;
+        }
+      }
+
+      if (wasDropdownOpen) {
+        document.getElementById('columns-dropdown').style.display = 'block';
+      }
+
+      // === Обработчики ===
+      const dropdown = document.getElementById('columns-dropdown');
+      const toggleBtn = document.getElementById('toggle-columns-btn');
+
+      // Add event listeners for table type buttons
+      const tableButtons = container.querySelectorAll('.table-control-btn');
+      if (tableButtons.length > 0) {
+        tableButtons.forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tableType = this.getAttribute('data-table-type');
+            currentTableType = tableType;
+
+            // Update active button
+            container.querySelectorAll('.table-control-btn').forEach(b => {
+              b.classList.remove('active');
+            });
+            this.classList.add('active');
+
+            // Show the appropriate table
+            if (tableType === 'relations') {
+              // Find a path that belongs to this relation to use as reference for relations table
+              let referencePath = null;
+              for (const [pathId, path] of nodeMap.entries()) {
+                if (path.subquery_id === subqueryId && path.level === level && path.rel_id === relId) {
+                  referencePath = path;
+                  break;
+                }
+              }
+              if (referencePath) {
+                showRelationsTable(String(referencePath.path_id));
+              }
+            } else {
+              // For alternative paths table, show paths for this relation
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+            }
+          });
+        });
+      }
+
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+
+        // Установка indeterminate состояния для групповых чекбоксов при открытии
+        if (dropdown.style.display === 'block') {
+          setTimeout(() => {
+            setGroupIndeterminateStates(dropdown);
+          }, 0);
+        }
+      });
+
+      // Обработка чекбоксов
+      dropdown.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+          if (this.classList.contains('column-checkbox')) {
+            // Обработка индивидуального столбца
+            const col = this.getAttribute('data-column');
+            if (this.checked) {
+              visibleColumns.add(col);
+            } else {
+              visibleColumns.delete(col);
+            }
+          } else if (this.classList.contains('group-checkbox')) {
+            // Обработка группы столбцов
+            const groupName = this.getAttribute('data-group');
+            const groupColumns = Array.from(dropdown.querySelectorAll(`input[data-group="${groupName}"].column-checkbox`));
+
+            if (this.checked) {
+              // Включить все столбцы в группе
+              groupColumns.forEach(checkbox => {
+                const col = checkbox.getAttribute('data-column');
+                visibleColumns.add(col);
+                checkbox.checked = true;
+              });
+            } else {
+              // Выключить все столбцы в группе
+              groupColumns.forEach(checkbox => {
+                const col = checkbox.getAttribute('data-column');
+                visibleColumns.delete(col);
+                checkbox.checked = false;
+              });
+            }
+
+            // Обновить indeterminate состояние для всех групп
+            setGroupIndeterminateStates(dropdown);
+          }
+
+          // Перерисовать таблицу один раз после изменения
+          showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+        });
+      });
+
+      const searchInput = document.getElementById('table-search');
+      const rows = container.querySelectorAll('#table-wrapper tbody tr');
+
+      searchInput.addEventListener('input', () => {
+        const term = searchInput.value.toLowerCase().trim();
+        rows.forEach(row => {
+          let found = term === '';
+          if (!found) {
+            const cells = row.querySelectorAll('td');
+            for (const cell of cells) {
+              if (cell.textContent.toLowerCase().includes(term)) {
+                found = true;
+                break;
+              }
+            }
+          }
+          row.style.display = found ? '' : 'none';
+        });
+      });
+
+      // Сортировка — только по видимым столбцам
+      displayedColumns.forEach((col, idx) => {
+        const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
+        if (th) {
+          th.addEventListener('click', () => {
+            let newSort;
+            if (th.classList.contains('sort-asc')) {
+              newSort = 'desc';
+            } else if (th.classList.contains('sort-desc')) {
+              newSort = null;
+            } else {
+              newSort = 'asc';
+            }
+
+            container.querySelectorAll('#table-wrapper th').forEach(t => {
+              t.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            if (newSort) {
+              th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+
+            if (newSort) {
+              const tbody = th.closest('table').querySelector('tbody');
+              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+
+              visibleRows.sort((a, b) => {
+                const aValue = a.cells[idx]?.textContent.trim() || '';
+                const bValue = b.cells[idx]?.textContent.trim() || '';
+
+                let aNum = parseFloat(aValue);
+                let bNum = parseFloat(bValue);
+
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                  return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+                } else {
+                  return newSort === 'asc'
+                    ? aValue.localeCompare(bValue)
+                    : bValue.localeCompare(aValue);
+                }
+              });
+
+              visibleRows.forEach(row => tbody.appendChild(row));
+            } else {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const verticalScroll = tableWrapper.scrollTop;
+              const horizontalScroll = tableWrapper.scrollLeft;
+
+              const tbody = th.closest('table').querySelector('tbody');
+              const allRows = Array.from(tbody.children);
+              allRows.sort((a, b) => {
+                const aPathId = parseInt(a.getAttribute('data-path-id'));
+                const bPathId = parseInt(b.getAttribute('data-path-id'));
+                return aPathId - bPathId;
+              });
+
+              allRows.forEach(row => tbody.appendChild(row));
+
+              tableWrapper.scrollTop = verticalScroll;
+              tableWrapper.scrollLeft = horizontalScroll;
+            }
+          });
+        }
+      });
+
+      // Клик по строке таблицы
+      container.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
+        row.addEventListener('click', () => {
+          const pathId = row.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Сброс выделения в EXPLAIN и таблице
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+
+          // Clear the corresponding relation highlight
+          document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
+          // Выделение в EXPLAIN
+          const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+          if (explainLine) explainLine.classList.add('selected');
+
+          // Выделение в таблице
+          row.classList.add('selected-row');
+
+          currentSelectedPathId = pathId;
+          highlightPathInTree(pathId);
+
+          if (bestPathIds.has(pathId)) {
+            highlightChildNodesInExplain(pathId);
+          }
+
+          // Check the current table type and update accordingly
+          if (currentTableType === 'relations') {
+            // Stay on relations table but update with new clicked path context
+            showRelationsTable(pathId);
+
+            // Highlight the corresponding relation in the relations table
+            highlightCorrespondingRelation(pathId);
+          } else {
+            // For alternative paths table, behave as before
+            // Also render the selected path with its children in the right panel
+            renderSelectedPathWithChildren(pathId);
+          }
+        });
+
+        row.addEventListener('dblclick', () => {
+          const pathId = row.getAttribute('data-path-id');
+          if (pathId) {
+            const node = cy.getElementById(pathId);
+            if (node && node.length > 0) {
+              cy.animate({
+                center: {
+                  eles: node
+                },
+                zoom: 1.2,
+                duration: 500
+              });
+            } else {
+              const path = nodeMap.get(pathId);
+              if (path) {
+                const idsToTry = [
+                  `relation-${path._relKey}`,
+                  `level-${path._levelKey}`,
+                  `subquery-${path._subKey}`
+                ];
+
+                for (const id of idsToTry) {
+                  const containerNode = cy.getElementById(id);
+                  if (containerNode && containerNode.length > 0) {
+                    cy.animate({
+                      center: {
+                        eles: containerNode
+                      },
+                      zoom: 1.2,
+                      duration: 500
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        });
       });
     }
 
