@@ -1665,17 +1665,24 @@
                 // Update the current selected path
                 currentSelectedPathId = firstPathId;
 
-                // Highlight the first path in the table
-                const firstRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${firstPathId}"]`);
-                if (firstRow) {
-                  firstRow.classList.add('selected-row');
+                // Highlight the first path in the table after it's rendered
+                setTimeout(() => {
+                  const firstRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${firstPathId}"]`);
+                  if (firstRow) {
+                    // Remove any existing selections in the table
+                    document.querySelectorAll('#table-wrapper tbody tr.selected-row').forEach(row => {
+                      row.classList.remove('selected-row');
+                    });
+                    // Add selection to the current row
+                    firstRow.classList.add('selected-row');
 
-                  // Highlight the corresponding line in the EXPLAIN panel
-                  const explainLine = document.querySelector(`.path-line[data-path-id="${firstPathId}"]`);
-                  if (explainLine) {
-                    explainLine.classList.add('selected');
+                    // Highlight the corresponding line in the EXPLAIN panel
+                    const explainLine = document.querySelector(`.path-line[data-path-id="${firstPathId}"]`);
+                    if (explainLine) {
+                      explainLine.classList.add('selected');
+                    }
                   }
-                }
+                }, 10); // Small delay to ensure the table is rendered
 
                 // Highlight the path in the tree
                 highlightPathInTree(firstPathId);
@@ -2784,12 +2791,87 @@
               refreshGraph();
             }
           } else {
-            if (expanded.has(id)) {
-              expanded.delete(id);
+            // If not in filter mode, treat as a click to select the first path in the relation
+            const relKey = id.replace('relation-', '');
+            const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
+
+            if (alternatives.length > 0) {
+              // Select the first path in the alternatives
+              const firstPath = alternatives[0];
+              const firstPathId = String(firstPath.path_id);
+
+              // Clear all selections and highlights
+              document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+              document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+              document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+              cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+
+              // Update the current selected path
+              currentSelectedPathId = firstPathId;
+
+              // Highlight the clicked relation node in the tree
+              const node = cy.getElementById(id);
+              if (node.length > 0) {
+                node.addClass('selected-in-tree');
+              }
+
+              // Highlight the corresponding line in the EXPLAIN panel
+              const explainLine = document.querySelector(`.path-line[data-path-id="${firstPathId}"]`);
+              if (explainLine) {
+                explainLine.classList.add('selected');
+              }
+
+              // Highlight the corresponding row in the table
+              const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${firstPathId}"]`);
+              if (tableRow) {
+                tableRow.classList.add('selected-row');
+              }
+
+              // Highlight child nodes in EXPLAIN
+              highlightChildNodesInExplain(firstPathId);
+
+              // Render the selected path with its children in the right panel
+              renderSelectedPathWithChildren(firstPathId);
+
+              // Switch to alternative paths table showing paths for this relation
+              currentTableType = 'alternative-paths';
+
+              // Update button states in the container if it exists
+              const container = document.getElementById('empty-container');
+              if (container) {
+                container.querySelectorAll('.table-control-btn').forEach(b => {
+                  b.classList.remove('active');
+                });
+                const altPathsBtn = container.querySelector('.table-control-btn[data-table-type="alternative-paths"]');
+                if (altPathsBtn) {
+                  altPathsBtn.classList.add('active');
+                }
+              }
+
+              // Show alternative paths for this relation
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+
+              // After the table is updated, highlight the first path row
+              setTimeout(() => {
+                const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${firstPathId}"]`);
+                if (tableRow) {
+                  // Remove any existing selections in the table
+                  document.querySelectorAll('#table-wrapper tbody tr.selected-row').forEach(row => {
+                    row.classList.remove('selected-row');
+                  });
+                  // Add selection to the current row
+                  tableRow.classList.add('selected-row');
+                }
+              }, 10); // Small delay to ensure the table is rendered
             } else {
-              expanded.set(id, true);
+              // If no paths in this relation, just toggle expansion
+              if (expanded.has(id)) {
+                expanded.delete(id);
+              } else {
+                expanded.set(id, true);
+              }
+              refreshGraph();
             }
-            refreshGraph();
           }
         });
 
@@ -2808,6 +2890,84 @@
 
         cy.on('tap', 'node.path-node', function (evt) {
           const nodeId = evt.target.id();
+
+          // Clear all selections and highlights
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+          cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+
+          // Update the current selected path
+          currentSelectedPathId = nodeId;
+
+          // Highlight the clicked path node in the tree
+          const node = cy.getElementById(nodeId);
+          if (node.length > 0) {
+            node.addClass('selected-in-tree');
+          }
+
+          // Highlight the corresponding line in the EXPLAIN panel
+          const explainLine = document.querySelector(`.path-line[data-path-id="${nodeId}"]`);
+          if (explainLine) {
+            explainLine.classList.add('selected');
+          }
+
+          // Highlight the corresponding row in the table
+          const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${nodeId}"]`);
+          if (tableRow) {
+            tableRow.classList.add('selected-row');
+          }
+
+          // Highlight child nodes in EXPLAIN
+          highlightChildNodesInExplain(nodeId);
+
+          // Render the selected path with its children in the right panel
+          renderSelectedPathWithChildren(nodeId);
+
+          // Show the alternative paths table for the selected path
+          const clickedPath = nodeMap.get(nodeId);
+          if (clickedPath) {
+            const relKey = clickedPath._relKey;
+            const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
+
+            if (alternatives.length > 0) {
+              // Switch to alternative paths table showing paths for this relation
+              currentTableType = 'alternative-paths';
+
+              // Update button states in the container
+              const container = document.getElementById('empty-container');
+              if (container) {
+                container.querySelectorAll('.table-control-btn').forEach(b => {
+                  b.classList.remove('active');
+                });
+                const altPathsBtn = container.querySelector('.table-control-btn[data-table-type="alternative-paths"]');
+                if (altPathsBtn) {
+                  altPathsBtn.classList.add('active');
+                }
+              }
+
+              // Show alternative paths for this relation
+              const subqueryId = clickedPath.subquery_id;
+              const level = clickedPath.level;
+              const relId = clickedPath.rel_id;
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+
+              // After the table is updated, highlight the clicked path row
+              setTimeout(() => {
+                const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${nodeId}"]`);
+                if (tableRow) {
+                  // Remove any existing selections in the table
+                  document.querySelectorAll('#table-wrapper tbody tr.selected-row').forEach(row => {
+                    row.classList.remove('selected-row');
+                  });
+                  // Add selection to the current row
+                  tableRow.classList.add('selected-row');
+                }
+              }, 10); // Small delay to ensure the table is rendered
+            }
+          }
+
+          // Collect descendants for highlighting in the graph
           const descendants = collectDescendants(nodeId);
           cy.elements('.highlighted, .highlighted-edge').removeClass('highlighted highlighted-edge');
 
