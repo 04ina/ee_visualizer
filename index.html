@@ -213,6 +213,9 @@
     .selected-row {
       background-color: #cce6ff !important;
     }
+    .corresponding-relation-highlight {
+      background-color: #cce6ff !important;
+    }
     input[type="checkbox"].indeterminate::after {
       content: "-";
       display: block;
@@ -764,6 +767,8 @@
           if (currentTableType === 'relations') {
             // Stay on relations table but update with new clicked path context
             showRelationsTable(pathId);
+            // Highlight the corresponding relation
+            highlightCorrespondingRelation(pathId);
           } else {
             // For alternative paths table, behave as before
             showAlternativePaths(pathId);
@@ -1011,6 +1016,9 @@
       const wasDropdownOpen = oldDropdown?.style.display === 'block';
       const scrollPos = oldDropdown?.scrollTop || 0;
 
+      // Clear previous highlights before rendering the new table
+      document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
       // Перерисовываем
       container.innerHTML = `
         <div id="columns-controls">${controlsHTML}</div>
@@ -1051,6 +1059,8 @@
             // Show the appropriate table
             if (tableType === 'relations') {
               showRelationsTable(clickedPathId);
+              // Highlight the corresponding relation
+              highlightCorrespondingRelation(clickedPathId);
             } else {
               showAlternativePaths(clickedPathId); // Refresh current view
             }
@@ -1207,6 +1217,9 @@
           document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
 
+          // Clear the corresponding relation highlight
+          document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
           // Выделение в EXPLAIN
           const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
           if (explainLine) explainLine.classList.add('selected');
@@ -1225,6 +1238,9 @@
           if (currentTableType === 'relations') {
             // Stay on relations table but update with new clicked path context
             showRelationsTable(pathId);
+
+            // Highlight the corresponding relation in the relations table
+            highlightCorrespondingRelation(pathId);
           } else {
             // For alternative paths table, behave as before
             // Also render the selected path with its children in the right panel
@@ -1270,6 +1286,58 @@
             }
           }
         });
+      });
+    }
+
+    function highlightCorrespondingRelation(pathId) {
+      // Get the selected path
+      const selectedPath = nodeMap.get(pathId);
+      if (!selectedPath) return;
+
+      // Find the corresponding relation in the relations table
+      const relId = selectedPath.rel_id;
+      const subqueryId = selectedPath.subquery_id;
+      const level = selectedPath.level;
+
+      // Find the header indices in the relations table
+      const headerCells = document.querySelectorAll('#table-container thead th');
+      let subqueryIdIndex = -1;
+      let levelIndex = -1;
+      let relIdIndex = -1;
+
+      for (let i = 0; i < headerCells.length; i++) {
+        const headerText = headerCells[i].textContent.trim();
+        if (headerText === 'subquery_id') {
+          subqueryIdIndex = i;
+        } else if (headerText === 'level') {
+          levelIndex = i;
+        } else if (headerText === 'rel_id') {
+          relIdIndex = i;
+        }
+      }
+
+      // Find the row in the relations table that matches this relation
+      const tableRows = document.querySelectorAll('#table-container tbody tr');
+      tableRows.forEach(row => {
+        // Check if this row corresponds to the selected relation
+        const cells = row.querySelectorAll('td');
+
+        // Check if we have the required indices and enough cells in the row
+        if (subqueryIdIndex !== -1 && levelIndex !== -1 && relIdIndex !== -1 &&
+            cells.length > Math.max(subqueryIdIndex, levelIndex, relIdIndex)) {
+
+          const rowSubqueryId = cells[subqueryIdIndex].textContent.trim();
+          const rowLevel = cells[levelIndex].textContent.trim();
+          const rowRelId = cells[relIdIndex].textContent.trim();
+
+          if (parseInt(rowSubqueryId) === subqueryId &&
+              parseInt(rowLevel) === level &&
+              parseInt(rowRelId) === relId) {
+            // Highlight this row
+            document.querySelectorAll('#table-container tbody tr.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+            row.classList.add('corresponding-relation-highlight');
+          }
+        }
       });
     }
 
@@ -1409,6 +1477,9 @@
 
       tableHTML += '</tbody></table></div>';
 
+      // Clear previous highlights before rendering the new table
+      document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
       // Render the relations table
       container.innerHTML = `
         <div id="columns-controls">${controlsHTML}</div>
@@ -1434,6 +1505,8 @@
               showAlternativePaths(clickedPathId);
             } else {
               showRelationsTable(clickedPathId); // Refresh current view
+              // Highlight the corresponding relation
+              highlightCorrespondingRelation(clickedPathId);
             }
           });
         });
@@ -1531,8 +1604,16 @@
           // For now, just highlight the row
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
           row.classList.add('selected-row');
+
+          // Remove the corresponding relation highlight when clicking on a relation row
+          document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
         });
       });
+
+      // If there's a currently selected path, highlight its corresponding relation
+      if (currentSelectedPathId) {
+        highlightCorrespondingRelation(currentSelectedPathId);
+      }
     }
 
     function highlightPathInTree(pathId) {
@@ -1651,6 +1732,8 @@
           if (currentTableType === 'relations') {
             // Stay on relations table but update with new clicked path context
             showRelationsTable(pathId);
+            // Highlight the corresponding relation
+            highlightCorrespondingRelation(pathId);
           } else {
             // For alternative paths table, behave as before
             showAlternativePaths(pathId);
