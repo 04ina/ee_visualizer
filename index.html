@@ -1652,29 +1652,91 @@
               // Show alternative paths for this relation
               showAlternativePathsForRelation(subqueryId, level, relId, referencePath._relKey);
 
-              // Center the camera on the relation node in the graph
-              const relationNodeId = `relation-${referencePath._relKey}`;
-              const relationNode = cy.getElementById(relationNodeId);
-              if (relationNode && relationNode.length > 0) {
-                cy.animate({
-                  center: {
-                    eles: relationNode
-                  },
-                  zoom: 1.2,
-                  duration: 500
-                });
-              } else {
-                // If the relation node doesn't exist, try to find the parent containers
-                const levelNodeId = `level-${referencePath._levelKey}`;
-                const levelNode = cy.getElementById(levelNodeId);
-                if (levelNode && levelNode.length > 0) {
+              // Find and select the first alternative path
+              const alternatives = Array.from(nodeMap.values()).filter(p =>
+                p.subquery_id === subqueryId && p.level === level && p.rel_id === relId
+              );
+
+              if (alternatives.length > 0) {
+                // Select the first path in the alternatives
+                const firstPath = alternatives[0];
+                const firstPathId = String(firstPath.path_id);
+
+                // Update the current selected path
+                currentSelectedPathId = firstPathId;
+
+                // Highlight the first path in the table
+                const firstRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${firstPathId}"]`);
+                if (firstRow) {
+                  firstRow.classList.add('selected-row');
+
+                  // Highlight the corresponding line in the EXPLAIN panel
+                  const explainLine = document.querySelector(`.path-line[data-path-id="${firstPathId}"]`);
+                  if (explainLine) {
+                    explainLine.classList.add('selected');
+                  }
+                }
+
+                // Highlight the path in the tree
+                highlightPathInTree(firstPathId);
+
+                // Render the selected path with its children in the right panel
+                renderSelectedPathWithChildren(firstPathId);
+
+                // Highlight the relation node in the graph
+                const relationNodeId = `relation-${referencePath._relKey}`;
+                const relationNode = cy.getElementById(relationNodeId);
+                if (relationNode && relationNode.length > 0) {
+                  relationNode.addClass('selected-in-tree');
                   cy.animate({
                     center: {
-                      eles: levelNode
+                      eles: relationNode
                     },
                     zoom: 1.2,
                     duration: 500
                   });
+                } else {
+                  // If the relation node doesn't exist, try to find the parent containers
+                  const levelNodeId = `level-${referencePath._levelKey}`;
+                  const levelNode = cy.getElementById(levelNodeId);
+                  if (levelNode && levelNode.length > 0) {
+                    levelNode.addClass('selected-in-tree');
+                    cy.animate({
+                      center: {
+                        eles: levelNode
+                      },
+                      zoom: 1.2,
+                      duration: 500
+                    });
+                  }
+                }
+              } else {
+                // If no alternatives found, just highlight the relation in the graph
+                const relationNodeId = `relation-${referencePath._relKey}`;
+                const relationNode = cy.getElementById(relationNodeId);
+                if (relationNode && relationNode.length > 0) {
+                  relationNode.addClass('selected-in-tree');
+                  cy.animate({
+                    center: {
+                      eles: relationNode
+                    },
+                    zoom: 1.2,
+                    duration: 500
+                  });
+                } else {
+                  // If the relation node doesn't exist, try to find the parent containers
+                  const levelNodeId = `level-${referencePath._levelKey}`;
+                  const levelNode = cy.getElementById(levelNodeId);
+                  if (levelNode && levelNode.length > 0) {
+                    levelNode.addClass('selected-in-tree');
+                    cy.animate({
+                      center: {
+                        eles: levelNode
+                      },
+                      zoom: 1.2,
+                      duration: 500
+                    });
+                  }
                 }
               }
             }
