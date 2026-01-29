@@ -118,6 +118,32 @@
       flex-direction: column;
     }
 
+    #table-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .table-control-btn {
+      padding: 6px 12px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .table-control-btn.active {
+      background: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+
+    .table-control-btn:hover:not(.active) {
+      background: #f5f5f5;
+    }
+
     #table-container {
       flex: 1;
       overflow: auto;
@@ -858,6 +884,9 @@
       });
     }
 
+    // Current active table type
+    let currentTableType = 'alternative-paths'; // 'alternative-paths', 'relations'
+
     function showAlternativePaths(clickedPathId) {
       const clickedPath = nodeMap.get(clickedPathId);
       if (!clickedPath) return;
@@ -875,7 +904,7 @@
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
         "path_type", "rel_name", "rel_alias", "indexoid", "level",
         "child_paths", "startup_cost", "total_cost", "rows", "width",
-        "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor", 
+        "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor",
         "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
       ];
 
@@ -912,9 +941,13 @@
         }
       }
 
-      // Формируем HTML 
+      // Формируем HTML
       let controlsHTML = `
-        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+        <div id="table-controls">
+          <button class="table-control-btn ${currentTableType === 'alternative-paths' ? 'active' : ''}" data-table-type="alternative-paths">Альтернативные пути</button>
+          <button class="table-control-btn ${currentTableType === 'relations' ? 'active' : ''}" data-table-type="relations">Отношения</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; margin-top:10px;">
           <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..."
                 style="flex:1; min-width:150px; padding:6px 10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
           <div style="position:relative; display:inline-block;">
@@ -992,6 +1025,30 @@
       // === Обработчики ===
       const dropdown = document.getElementById('columns-dropdown');
       const toggleBtn = document.getElementById('toggle-columns-btn');
+
+      // Add event listeners for table type buttons
+      const tableButtons = container.querySelectorAll('.table-control-btn');
+      if (tableButtons.length > 0) {
+        tableButtons.forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tableType = this.getAttribute('data-table-type');
+            currentTableType = tableType;
+
+            // Update active button
+            container.querySelectorAll('.table-control-btn').forEach(b => {
+              b.classList.remove('active');
+            });
+            this.classList.add('active');
+
+            // Show the appropriate table
+            if (tableType === 'relations') {
+              showRelationsTable(clickedPathId);
+            } else {
+              showAlternativePaths(clickedPathId); // Refresh current view
+            }
+          });
+        });
+      }
 
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1197,6 +1254,261 @@
               }
             }
           }
+        });
+      });
+    }
+
+    function showRelationsTable(clickedPathId) {
+      const clickedPath = nodeMap.get(clickedPathId);
+      if (!clickedPath) return;
+
+      const container = document.getElementById('empty-container');
+
+      // Get all unique relations from the original data structure
+      const relations = new Map();
+      for (const [pathId, path] of nodeMap.entries()) {
+        const relKey = path._relKey;
+        if (!relations.has(relKey)) {
+          // Extract the relation information from the original data
+          const relParts = relKey.split('-');
+          if (relParts.length >= 3) {
+            const subKey = relParts[0];
+            const levelStr = relParts[1]; // e.g., "L1"
+            const level = levelStr.substring(1); // remove 'L' prefix to get the number
+            const relId = relParts[2].substring(1); // remove 'R' prefix to get the number
+
+            // Find the original relation object in the data structure
+            let originalRel = null;
+            for (const [queryId, query] of Object.entries(globalData.queries)) {
+              for (const [subqueryId, subquery] of Object.entries(query.subqueries)) {
+                if (subqueryId === subKey) {
+                  for (const [levelCheck, levelObj] of Object.entries(subquery.levels)) {
+                    if (levelCheck === level) {
+                      for (const [relIdCheck, relObj] of Object.entries(levelObj.relations)) {
+                        if (relIdCheck === relId) {
+                          originalRel = relObj;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            // Create a relation object with original data
+            const relData = {
+              subquery_id: path.subquery_id,
+              subquery_level: path.subquery_level,
+              level: path.level,
+              rel_id: path.rel_id,
+              rel_name: path.rel_name || null,
+              rel_alias: path.rel_alias || null,
+              path_count: 0, // Will be counted later
+              paths: [] // Will be filled later
+            };
+
+            // Add any additional fields from the original relation object
+            if (originalRel) {
+              for (const [key, value] of Object.entries(originalRel)) {
+                if (!relData.hasOwnProperty(key)) {
+                  relData[key] = value;
+                }
+              }
+            }
+
+            relations.set(relKey, relData);
+          }
+        }
+
+        // Add path to the relation
+        const relData = relations.get(relKey);
+        relData.path_count = (relData.path_count || 0) + 1;
+        relData.paths = relData.paths || [];
+        relData.paths.push(path);
+      }
+
+      // Convert map values to array
+      const relationsArray = Array.from(relations.values());
+
+      // Define column order for relations table
+      const relationColumns = [
+        "subquery_id", "subquery_level", "level", "rel_id",
+        "rel_name", "rel_alias", "path_count"
+      ];
+
+      // Create controls HTML with buttons
+      let controlsHTML = `
+        <div id="table-controls">
+          <button class="table-control-btn ${currentTableType === 'alternative-paths' ? 'active' : ''}" data-table-type="alternative-paths">Альтернативные пути</button>
+          <button class="table-control-btn ${currentTableType === 'relations' ? 'active' : ''}" data-table-type="relations">Отношения</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; margin-top:10px;">
+          <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..."
+                style="flex:1; min-width:150px; padding:6px 10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
+          <div style="position:relative; display:inline-block;">
+            <button id="toggle-columns-btn" type="button"
+                    style="padding:6px 10px; border:1px solid #ccc; background:#fff; border-radius:3px; cursor:pointer; font-size:13px;">
+              ⚙️ Столбцы
+            </button>
+            <div id="columns-dropdown" style="display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #ccc; border-radius:3px; z-index:1000; max-height:300px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+              <!-- Relations columns dropdown -->
+            </div>
+          </div>
+        </div>
+      `;
+
+      let tableHTML = `<div id="table-wrapper" style="max-height:100%; overflow:auto;"><table><thead><tr>`;
+
+      // Add headers for relations table
+      relationColumns.forEach(col => {
+        tableHTML += `<th data-column="${col}">${col}</th>`;
+      });
+      tableHTML += '</tr></thead><tbody>';
+
+      // Add rows for each relation
+      relationsArray.forEach(rel => {
+        tableHTML += '<tr>';
+        relationColumns.forEach(col => {
+          let value = rel[col] !== undefined ? rel[col] : '';
+          if (typeof value === 'number') {
+            if (Number.isInteger(value)) {
+              value = String(value);
+            } else {
+              value = value.toFixed(2);
+            }
+          } else {
+            value = String(value);
+          }
+          tableHTML += `<td>${value}</td>`;
+        });
+        tableHTML += '</tr>';
+      });
+
+      tableHTML += '</tbody></table></div>';
+
+      // Render the relations table
+      container.innerHTML = `
+        <div id="columns-controls">${controlsHTML}</div>
+        <div id="table-container">${tableHTML}</div>
+      `;
+
+      // Add event listeners for table type buttons
+      const tableButtons = container.querySelectorAll('.table-control-btn');
+      if (tableButtons.length > 0) {
+        tableButtons.forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tableType = this.getAttribute('data-table-type');
+            currentTableType = tableType;
+
+            // Update active button
+            container.querySelectorAll('.table-control-btn').forEach(b => {
+              b.classList.remove('active');
+            });
+            this.classList.add('active');
+
+            // Show the appropriate table
+            if (tableType === 'alternative-paths') {
+              showAlternativePaths(clickedPathId);
+            } else {
+              showRelationsTable(clickedPathId); // Refresh current view
+            }
+          });
+        });
+      }
+
+      // Add search functionality
+      const searchInput = document.getElementById('table-search');
+      const rows = container.querySelectorAll('#table-wrapper tbody tr');
+
+      searchInput.addEventListener('input', () => {
+        const term = searchInput.value.toLowerCase().trim();
+        rows.forEach(row => {
+          let found = term === '';
+          if (!found) {
+            const cells = row.querySelectorAll('td');
+            for (const cell of cells) {
+              if (cell.textContent.toLowerCase().includes(term)) {
+                found = true;
+                break;
+              }
+            }
+          }
+          row.style.display = found ? '' : 'none';
+        });
+      });
+
+      // Add sorting functionality
+      relationColumns.forEach((col, idx) => {
+        const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
+        if (th) {
+          th.addEventListener('click', () => {
+            let newSort;
+            if (th.classList.contains('sort-asc')) {
+              newSort = 'desc';
+            } else if (th.classList.contains('sort-desc')) {
+              newSort = null;
+            } else {
+              newSort = 'asc';
+            }
+
+            container.querySelectorAll('#table-wrapper th').forEach(t => {
+              t.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            if (newSort) {
+              th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+
+            if (newSort) {
+              const tbody = th.closest('table').querySelector('tbody');
+              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+
+              visibleRows.sort((a, b) => {
+                const aValue = a.cells[idx]?.textContent.trim() || '';
+                const bValue = b.cells[idx]?.textContent.trim() || '';
+
+                let aNum = parseFloat(aValue);
+                let bNum = parseFloat(bValue);
+
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                  return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+                } else {
+                  return newSort === 'asc'
+                    ? aValue.localeCompare(bValue)
+                    : bValue.localeCompare(aValue);
+                }
+              });
+
+              visibleRows.forEach(row => tbody.appendChild(row));
+            } else {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const verticalScroll = tableWrapper.scrollTop;
+              const horizontalScroll = tableWrapper.scrollLeft;
+
+              const tbody = th.closest('table').querySelector('tbody');
+              const allRows = Array.from(tbody.children);
+              allRows.sort((a, b) => {
+                const aValue = a.cells[0]?.textContent.trim() || '';
+                const bValue = b.cells[0]?.textContent.trim() || '';
+                return aValue.localeCompare(bValue);
+              });
+
+              allRows.forEach(row => tbody.appendChild(row));
+
+              tableWrapper.scrollTop = verticalScroll;
+              tableWrapper.scrollLeft = horizontalScroll;
+            }
+          });
+        }
+      });
+
+      // Add click functionality to rows
+      container.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
+        row.addEventListener('click', () => {
+          // For now, just highlight the row
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+          row.classList.add('selected-row');
         });
       });
     }
@@ -1446,9 +1758,13 @@
       });
     }
 
+    let globalData = null;
+
     fetch('data.json?' + Date.now())
       .then(res => res.json())
       .then(data => {
+        globalData = data; // Store the data globally so it can be accessed by other functions
+
         cytoscape.use(cytoscapeDagre);
 
         nodeMap = new Map();
