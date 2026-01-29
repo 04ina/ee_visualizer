@@ -160,7 +160,7 @@
     }
     .control-button {
       position: absolute;
-      top: 10px;
+      left: 10px;
       z-index: 10;
       padding: 6px 12px;
       font-size: 14px;
@@ -173,11 +173,12 @@
     .control-button:hover {
       background: #f5f5f5;
     }
-    #reset-view { left: 10px; }
-    #collapse-all { left: 130px; }
-    #expand-best { left: 270px; }
-    #clear-filters { left: 462px; }
-    #toggle-layout { left: 618px; }
+    #copy-selected-path { top: 10px; }
+    #reset-view { top: 50px; }
+    #collapse-all { top: 90px; }
+    #expand-best { top: 130px; }
+    #clear-filters { top: 170px; }
+    #toggle-layout { top: 210px; }
     .highlighted {
       background-color: #ffcc00 !important;
       border-color: #ff9900 !important;
@@ -204,6 +205,7 @@
   <div id="main-container">
     <div id="tree-container">
       <div id="cy"></div>
+      <button id="copy-selected-path" class="control-button">Копировать выбранный путь</button>
       <button id="reset-view" class="control-button">Сбросить вид</button>
       <button id="collapse-all" class="control-button">Свернуть дерево</button>
       <button id="expand-best" class="control-button">Развернуть лучший план</button>
@@ -1744,6 +1746,39 @@
         document.getElementById('toggle-layout').addEventListener('click', () => {
           currentLayoutDirection = currentLayoutDirection === 'LR' ? 'TB' : 'LR';
           refreshGraph(); // перестроит граф с новым layout
+        });
+
+        document.getElementById('copy-selected-path').addEventListener('click', () => {
+          if (!currentSelectedPathId) {
+            alert('Сначала выберите альтернативный путь');
+            return;
+          }
+
+          const selectedPath = nodeMap.get(currentSelectedPathId);
+          if (!selectedPath) {
+            alert('Выбранный путь не найден');
+            return;
+          }
+
+          // Подготовить информацию для копирования
+          const pathInfo = `${selectedPath.subquery_id} ${selectedPath.subquery_level} ${selectedPath.rel_id} ${selectedPath.path_type} ${selectedPath.level} ${selectedPath.startup_cost} ${selectedPath.total_cost} ${selectedPath.rows} ${selectedPath.width}`;
+
+          // Копировать в буфер обмена
+          navigator.clipboard.writeText(pathInfo)
+            .then(() => {
+              // Визуальная обратная связь
+              const button = document.getElementById('copy-selected-path');
+              const originalText = button.textContent;
+              button.textContent = 'Скопировано!';
+
+              setTimeout(() => {
+                button.textContent = originalText;
+              }, 2000);
+            })
+            .catch(err => {
+              console.error('Ошибка при копировании: ', err);
+              alert('Не удалось скопировать информацию: ' + err.message);
+            });
         });
 
         cy.on('tap', 'node.subquery-group, node.level-group', function (evt) {
