@@ -44,31 +44,57 @@
       width: 50%;
       min-width: 300px;
     }
-    #explain-container {
+    #explain-split-container {
+      display: flex;
       flex: none;
       height: 40vh;
+      border-bottom: 1px solid #ddd;
+    }
+    #explain-best-container {
+      flex: 1 1 50%;
       padding: 10px;
       background: #f8f8f8;
       overflow: auto;
-      border-bottom: 1px solid #ddd;
+      border-right: 1px solid #ddd;
       font-size: 13px;
       line-height: 1.4;
       white-space: pre-wrap;
       cursor: pointer;
     }
-    #explain-container .path-line {
+    #explain-vertical-resizer {
+      width: 6px;
+      background: #ccc;
+      cursor: col-resize;
+      user-select: none;
+    }
+    #explain-selected-container {
+      flex: 1 1 50%;
+      padding: 10px;
+      background: #f0f8f8;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      cursor: pointer;
+    }
+    #explain-best-container .path-line,
+    #explain-selected-container .path-line {
       padding: 2px 0;
     }
-    #explain-container .path-line:hover {
+    #explain-best-container .path-line:hover,
+    #explain-selected-container .path-line:hover {
       background: #e0e0e0;
     }
-    #explain-container .selected {
+    #explain-best-container .selected,
+    #explain-selected-container .selected {
       background-color: #cce6ff !important;
     }
-    #explain-container .child-highlight {
+    #explain-best-container .child-highlight,
+    #explain-selected-container .child-highlight {
       background-color: #e3f3fd !important;
     }
-    #explain-container .section-header {
+    #explain-best-container .section-header,
+    #explain-selected-container .section-header {
       font-weight: bold;
       margin-top: 10px;
       margin-bottom: 5px;
@@ -186,7 +212,11 @@
     </div>
     <div id="vertical-resizer"></div>
     <div id="right-container">
-      <div id="explain-container">Загрузка...</div>
+      <div id="explain-split-container">
+        <div id="explain-best-container">Лучший план (EXPLAIN)</div>
+        <div id="explain-vertical-resizer"></div>
+        <div id="explain-selected-container">Выбранный альтернативный путь (с дочерними узлами)</div>
+      </div>
       <div id="horizontal-resizer"></div>
       <div id="empty-container">Кликните на строку в EXPLAIN, чтобы увидеть альтернативные пути.</div>
     </div>
@@ -599,7 +629,7 @@
 
     function renderAllBestPlans() {
       if (allBestRoots.length === 0) {
-        document.getElementById('explain-container').textContent = "Лучшие планы не найдены.";
+        document.getElementById('explain-best-container').textContent = "Лучшие планы не найдены.";
         return;
       }
 
@@ -681,15 +711,15 @@
         });
       }
 
-      const explainContainer = document.getElementById('explain-container');
-      explainContainer.innerHTML = lines.map(({ text, pathId }) => {
+      const explainBestContainer = document.getElementById('explain-best-container');
+      explainBestContainer.innerHTML = lines.map(({ text, pathId }) => {
         if (pathId) {
           return `<div class="path-line" data-path-id="${pathId}">${text}</div>`;
         }
         return `<div class="section-header">${text}</div>`;
       }).join('');
 
-      explainContainer.querySelectorAll('.path-line').forEach(el => {
+      explainBestContainer.querySelectorAll('.path-line').forEach(el => {
         el.addEventListener('click', () => {
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
           document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
@@ -704,6 +734,9 @@
 
           showAlternativePaths(pathId);
           highlightPathInTree(pathId);
+
+          // Also render the selected path with its children in the right panel
+          renderSelectedPathWithChildren(pathId);
         });
 
         el.addEventListener('dblclick', () => {
@@ -1120,6 +1153,9 @@
           if (bestPathIds.has(pathId)) {
             highlightChildNodesInExplain(pathId);
           }
+
+          // Also render the selected path with its children in the right panel
+          renderSelectedPathWithChildren(pathId);
         });
 
         row.addEventListener('dblclick', () => {
@@ -1210,9 +1246,123 @@
       });
     }
 
+    function renderSelectedPathWithChildren(selectedPathId) {
+      const selectedPath = nodeMap.get(selectedPathId);
+      if (!selectedPath) {
+        document.getElementById('explain-selected-container').textContent = "Выбранный путь не найден.";
+        return;
+      }
+
+      const lines = [];
+
+      // Add header for the selected path
+      lines.push({ text: "Выбранный альтернативный путь", pathId: null });
+
+      // Recursive function to collect all children of the selected path
+      const collectLines = (path, depth) => {
+        const idStr = String(path.path_id);
+        const indent = "  ".repeat(depth);
+
+        let line = `${indent}-> ${path.path_type}`;
+        if (path.rel_name) {
+          if (path.rel_alias && path.rel_alias !== path.rel_name) {
+            line += ` on ${path.rel_name} ${path.rel_alias}`;
+          } else {
+            line += ` on ${path.rel_name}`;
+          }
+        }
+        if (path.total_cost !== undefined) {
+          line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
+        }
+        lines.push({ text: line, pathId: idStr });
+
+        if (Array.isArray(path.child_paths)) {
+          for (const childId of path.child_paths) {
+            const child = nodeMap.get(String(childId));
+            if (child) {
+              collectLines(child, depth + 1);
+            }
+          }
+        }
+      };
+
+      // Start collecting from the selected path
+      collectLines(selectedPath, 0);
+
+      const selectedContainer = document.getElementById('explain-selected-container');
+      selectedContainer.innerHTML = lines.map(({ text, pathId }) => {
+        if (pathId) {
+          return `<div class="path-line" data-path-id="${pathId}">${text}</div>`;
+        }
+        return `<div class="section-header">${text}</div>`;
+      }).join('');
+
+      // Add event listeners to the new path lines
+      selectedContainer.querySelectorAll('.path-line').forEach(el => {
+        el.addEventListener('click', () => {
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+          cy.elements('.selected-in-tree').removeClass('selected-in-tree');
+
+          el.classList.add('selected');
+          const pathId = el.getAttribute('data-path-id');
+          currentSelectedPathId = pathId;
+
+          highlightChildNodesInExplain(pathId);
+
+          showAlternativePaths(pathId);
+          highlightPathInTree(pathId);
+
+          // Also render the selected path with its children in the right panel
+          renderSelectedPathWithChildren(pathId);
+        });
+
+        el.addEventListener('dblclick', () => {
+          const pathId = el.getAttribute('data-path-id');
+          if (pathId) {
+            const node = cy.getElementById(pathId);
+            if (node && node.length > 0) {
+              cy.animate({
+                center: {
+                  eles: node
+                },
+                zoom: 1.2,
+                duration: 500
+              });
+            } else {
+              const path = nodeMap.get(pathId);
+              if (path) {
+                const idsToTry = [
+                  `relation-${path._relKey}`,
+                  `level-${path._levelKey}`,
+                  `subquery-${path._subKey}`
+                ];
+
+                for (const id of idsToTry) {
+                  const containerNode = cy.getElementById(id);
+                  if (containerNode && containerNode.length > 0) {
+                    cy.animate({
+                      center: {
+                        eles: containerNode
+                      },
+                      zoom: 1.2,
+                      duration: 500
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        });
+      });
+    }
+
     function makeResizable() {
       const vResizer = document.getElementById('vertical-resizer');
       const hResizer = document.getElementById('horizontal-resizer');
+      const explainVResizer = document.getElementById('explain-vertical-resizer');
       let resizing = null;
 
       // Вертикальный ресайзер (между деревом и правой панелью)
@@ -1224,6 +1374,12 @@
       // Горизонтальный ресайзер (между EXPLAIN и таблицей)
       hResizer.addEventListener('mousedown', e => {
         resizing = 'h';
+        e.preventDefault();
+      });
+
+      // Вертикальный ресайзер между двумя панелями EXPLAIN
+      explainVResizer.addEventListener('mousedown', e => {
+        resizing = 'ev'; // explain vertical
         e.preventDefault();
       });
 
@@ -1241,7 +1397,7 @@
         } else if (resizing === 'h') {
           // Горизонтальное деление: EXPLAIN | таблица
           const right = document.getElementById('right-container');
-          const explain = document.getElementById('explain-container');
+          const explainSplitContainer = document.getElementById('explain-split-container');
           const empty = document.getElementById('empty-container');
 
           // Получаем позицию курсора относительно правой панели
@@ -1250,7 +1406,23 @@
 
           const newHeight = Math.max(100, Math.min(offsetY, rect.height - 100));
 
-          explain.style.height = newHeight + 'px';
+          explainSplitContainer.style.height = newHeight + 'px';
+        } else if (resizing === 'ev') {
+          // Вертикальное деление внутри панели EXPLAIN: Лучший план | Выбранный путь
+          const splitContainer = document.getElementById('explain-split-container');
+          const bestPanel = document.getElementById('explain-best-container');
+          const selectedPanel = document.getElementById('explain-selected-container');
+
+          // Получаем ширину контейнера
+          const containerRect = splitContainer.getBoundingClientRect();
+          const relativeX = e.clientX - containerRect.left;
+
+          // Рассчитываем проценты
+          const pct = (relativeX / containerRect.width) * 100;
+
+          // Устанавливаем ширину для каждой панели
+          bestPanel.style.flex = `0 0 ${pct}%`;
+          selectedPanel.style.flex = `0 0 ${100 - pct}%`;
         }
       });
 
@@ -1678,7 +1850,7 @@
       .catch(err => {
         console.error('Failed to load data.json:', err);
         alert('Ошибка загрузки data.json: ' + err.message);
-        document.getElementById('explain-container').textContent = 'Ошибка загрузки данных.';
+        document.getElementById('explain-best-container').textContent = 'Ошибка загрузки данных.';
       });
 
       // Закрытие меню столбцов при клике вне его
