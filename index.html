@@ -760,7 +760,15 @@
 
           highlightChildNodesInExplain(pathId);
 
-          showAlternativePaths(pathId);
+          // Check the current table type and update accordingly
+          if (currentTableType === 'relations') {
+            // Stay on relations table but update with new clicked path context
+            showRelationsTable(pathId);
+          } else {
+            // For alternative paths table, behave as before
+            showAlternativePaths(pathId);
+          }
+
           highlightPathInTree(pathId);
 
           // Also render the selected path with its children in the right panel
@@ -1213,8 +1221,15 @@
             highlightChildNodesInExplain(pathId);
           }
 
-          // Also render the selected path with its children in the right panel
-          renderSelectedPathWithChildren(pathId);
+          // Check the current table type and update accordingly
+          if (currentTableType === 'relations') {
+            // Stay on relations table but update with new clicked path context
+            showRelationsTable(pathId);
+          } else {
+            // For alternative paths table, behave as before
+            // Also render the selected path with its children in the right panel
+            renderSelectedPathWithChildren(pathId);
+          }
         });
 
         row.addEventListener('dblclick', () => {
@@ -1264,68 +1279,75 @@
 
       const container = document.getElementById('empty-container');
 
-      // Get all unique relations from the original data structure
+      // Get the level and subquery_id of the clicked path
+      const targetLevel = clickedPath.level;
+      const targetSubqueryId = clickedPath.subquery_id;
+
+      // Get only relations from the same level and subquery as the clicked path
       const relations = new Map();
       for (const [pathId, path] of nodeMap.entries()) {
-        const relKey = path._relKey;
-        if (!relations.has(relKey)) {
-          // Extract the relation information from the original data
-          const relParts = relKey.split('-');
-          if (relParts.length >= 3) {
-            const subKey = relParts[0];
-            const levelStr = relParts[1]; // e.g., "L1"
-            const level = levelStr.substring(1); // remove 'L' prefix to get the number
-            const relId = relParts[2].substring(1); // remove 'R' prefix to get the number
+        // Only include paths that are in the same level and subquery as the clicked path
+        if (path.level === targetLevel && path.subquery_id === targetSubqueryId) {
+          const relKey = path._relKey;
+          if (!relations.has(relKey)) {
+            // Extract the relation information from the original data
+            const relParts = relKey.split('-');
+            if (relParts.length >= 3) {
+              const subKey = relParts[0];
+              const levelStr = relParts[1]; // e.g., "L1"
+              const level = levelStr.substring(1); // remove 'L' prefix to get the number
+              const relId = relParts[2].substring(1); // remove 'R' prefix to get the number
 
-            // Find the original relation object in the data structure
-            let originalRel = null;
-            for (const [queryId, query] of Object.entries(globalData.queries)) {
-              for (const [subqueryId, subquery] of Object.entries(query.subqueries)) {
-                if (subqueryId === subKey) {
-                  for (const [levelCheck, levelObj] of Object.entries(subquery.levels)) {
-                    if (levelCheck === level) {
-                      for (const [relIdCheck, relObj] of Object.entries(levelObj.relations)) {
-                        if (relIdCheck === relId) {
-                          originalRel = relObj;
-                          break;
+              // Find the original relation object in the data structure
+              let originalRel = null;
+              for (const [queryId, query] of Object.entries(globalData.queries)) {
+                for (const [subqueryId, subquery] of Object.entries(query.subqueries)) {
+                  if (subqueryId === subKey) {
+                    for (const [levelCheck, levelObj] of Object.entries(subquery.levels)) {
+                      if (levelCheck === level) {
+                        for (const [relIdCheck, relObj] of Object.entries(levelObj.relations)) {
+                          if (relIdCheck === relId) {
+                            originalRel = relObj;
+                            break;
+                          }
                         }
                       }
                     }
                   }
                 }
               }
-            }
 
-            // Create a relation object with original data
-            const relData = {
-              subquery_id: path.subquery_id,
-              subquery_level: path.subquery_level,
-              level: path.level,
-              rel_id: path.rel_id,
-              rel_name: path.rel_name || null,
-              rel_alias: path.rel_alias || null,
-              path_count: 0, // Will be counted later
-              paths: [] // Will be filled later
-            };
+              // Create a relation object with original data
+              const relData = {
+                subquery_id: path.subquery_id,
+                subquery_level: path.subquery_level,
+                level: path.level,
+                rel_id: path.rel_id,
+                rel_name: path.rel_name || null,
+                rel_alias: path.rel_alias || null,
+                path_count: 0, // Will be counted later
+                paths: [] // Will be filled later
+              };
 
-            // Add any additional fields from the original relation object
-            if (originalRel) {
-              for (const [key, value] of Object.entries(originalRel)) {
-                if (!relData.hasOwnProperty(key)) {
-                  relData[key] = value;
+              // Add any additional fields from the original relation object
+              if (originalRel) {
+                for (const [key, value] of Object.entries(originalRel)) {
+                  if (!relData.hasOwnProperty(key)) {
+                    relData[key] = value;
+                  }
                 }
               }
+
+              relations.set(relKey, relData);
             }
-
-            relations.set(relKey, relData);
           }
-        }
 
-        // Add path to the relation
-        const relData = relations.get(relKey);
-        relData.path_count = (relData.path_count || 0) + 1;
-        relData.paths = relData.paths || [];
-        relData.paths.push(path);
+          // Add path to the relation
+          const relData = relations.get(relKey);
+          relData.path_count = (relData.path_count || 0) + 1;
+          relData.paths = relData.paths || [];
+          relData.paths.push(path);
+        }
       }
 
       // Convert map values to array
@@ -1625,7 +1647,15 @@
 
           highlightChildNodesInExplain(pathId);
 
-          showAlternativePaths(pathId);
+          // Check the current table type and update accordingly
+          if (currentTableType === 'relations') {
+            // Stay on relations table but update with new clicked path context
+            showRelationsTable(pathId);
+          } else {
+            // For alternative paths table, behave as before
+            showAlternativePaths(pathId);
+          }
+
           highlightPathInTree(pathId);
 
           // Also render the selected path with its children in the right panel
