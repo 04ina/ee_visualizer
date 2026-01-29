@@ -51,7 +51,7 @@
       border-bottom: 1px solid #ddd;
     }
     #explain-best-container {
-      flex: 1 1 50%;
+      flex: 1;
       padding: 10px;
       background: #f8f8f8;
       overflow: auto;
@@ -68,7 +68,7 @@
       user-select: none;
     }
     #explain-selected-container {
-      flex: 1 1 50%;
+      flex: 1;
       padding: 10px;
       background: #f0f8f8;
       overflow: auto;
@@ -1418,15 +1418,28 @@
           const relativeX = e.clientX - containerRect.left;
 
           // Рассчитываем проценты
-          const pct = (relativeX / containerRect.width) * 100;
+          const pct = Math.max(10, Math.min(90, (relativeX / containerRect.width) * 100)); // Ограничиваем диапазон от 10% до 90%
+          const selectedPct = 100 - pct;
 
-          // Устанавливаем ширину для каждой панели
+          // Устанавливаем flex-basis для каждой панели
           bestPanel.style.flex = `0 0 ${pct}%`;
-          selectedPanel.style.flex = `0 0 ${100 - pct}%`;
+          selectedPanel.style.flex = `0 0 ${selectedPct}%`;
         }
       });
 
       document.addEventListener('mouseup', () => {
+        if (resizing === 'ev') {
+          // Reset flex properties to allow for future resizing
+          const bestPanel = document.getElementById('explain-best-container');
+          const selectedPanel = document.getElementById('explain-selected-container');
+          // Keep the flex basis but allow growing/shrinking
+          const bestBasis = bestPanel.style.flexBasis;
+          const selectedBasis = selectedPanel.style.flexBasis;
+          if (bestBasis && selectedBasis) {
+            bestPanel.style.flex = `1 1 ${bestBasis}`;
+            selectedPanel.style.flex = `1 1 ${selectedBasis}`;
+          }
+        }
         resizing = null;
       });
     }
@@ -1748,7 +1761,7 @@
           const originalEvent = evt.originalEvent;
           const isFilterMode = originalEvent.ctrlKey || originalEvent.metaKey;
 
-          // Пропускаем, если это групповой узел (best/other)
+          // П��опускаем, если это групповой узел (best/other)
           if (id.startsWith('best-rels-') || id.startsWith('other-rels-')) {
             if (expanded.has(id)) {
               expanded.delete(id);
