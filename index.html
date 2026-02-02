@@ -216,6 +216,10 @@
     .corresponding-relation-highlight {
       background-color: #cce6ff !important;
     }
+
+    .best-path-row {
+      border: 2px solid #0066cc !important;
+    }
     input[type="checkbox"].indeterminate::after {
       content: "-";
       display: block;
@@ -986,7 +990,11 @@
 
       alternatives.forEach(p => {
         const isSelected = String(p.path_id) === clickedPathId;
-        tableHTML += `<tr data-path-id="${p.path_id}"${isSelected ? ' class="selected-row"' : ''}>`;
+        const isBestPath = bestPathIds.has(String(p.path_id));
+        let rowClass = '';
+        if (isSelected) rowClass = 'selected-row';
+        if (isBestPath) rowClass += (rowClass ? ' ' : '') + 'best-path-row';
+        tableHTML += `<tr data-path-id="${p.path_id}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
         displayedColumns.forEach(col => {
           const value = p[col] !== undefined ? p[col] : '';
           let displayValue;
@@ -1225,7 +1233,9 @@
           if (explainLine) explainLine.classList.add('selected');
 
           // Выделение в таблице
-          row.classList.add('selected-row');
+          // Preserve the best-path-row class if this is a best path
+          const isBestPath = bestPathIds.has(pathId);
+          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
           currentSelectedPathId = pathId;
           highlightPathInTree(pathId);
@@ -1888,8 +1898,9 @@
       tableHTML += '</tr></thead><tbody>';
 
       alternatives.forEach(p => {
-        // No path is selected initially when showing paths for a relation
-        tableHTML += `<tr data-path-id="${p.path_id}">`;
+        const isBestPath = bestPathIds.has(String(p.path_id));
+        const rowClass = isBestPath ? 'best-path-row' : '';
+        tableHTML += `<tr data-path-id="${p.path_id}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
         displayedColumns.forEach(col => {
           const value = p[col] !== undefined ? p[col] : '';
           let displayValue;
@@ -2137,7 +2148,9 @@
           if (explainLine) explainLine.classList.add('selected');
 
           // Выделение в таблице
-          row.classList.add('selected-row');
+          // Preserve the best-path-row class if this is a best path
+          const isBestPath = bestPathIds.has(pathId);
+          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
           currentSelectedPathId = pathId;
           highlightPathInTree(pathId);
