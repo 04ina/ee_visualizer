@@ -2,6 +2,22 @@ import csv
 import json
 import sys
 
+def parse_field(val, target_type, null_repr='\\N'):
+    if val == null_repr:
+        return None
+    return target_type(val)
+
+def parse_cost_field(val):
+    """Parse cost field, handling Infinity and NaN values for JSON compatibility"""
+    if val == '\\N':
+        return None
+    elif val.upper() == 'INFINITY' or val.upper() == 'INF':
+        return float('inf')
+    elif val.upper() == 'NAN':
+        return float('nan')
+    else:
+        return float(val)
+
 def main(csv_path):
     COLUMNS = [
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
@@ -25,11 +41,6 @@ def main(csv_path):
                 level_val = record["level"]
                 level = int(level_val) if level_val != '\\N' else 0
 
-                def parse_field(val, target_type, null_repr='\\N'):
-                    if val == null_repr:
-                        return None
-                    return target_type(val)
-
                 path_entry = {
 
                     "query_id": parse_field(record["query_id"], int),
@@ -44,8 +55,8 @@ def main(csv_path):
                     ],
                     "rel_name": clean(record["rel_name"]),
                     "rel_alias": clean(record["rel_alias"]),
-                    "startup_cost": parse_field(record["startup_cost"], float),
-                    "total_cost": parse_field(record["total_cost"], float),
+                    "startup_cost": parse_cost_field(record["startup_cost"]),
+                    "total_cost": parse_cost_field(record["total_cost"]),
                     "rows": parse_field(record["rows"], int),
                     "width": parse_field(record["width"], int),
                     "indexoid": parse_field(record["indexoid"], int),
@@ -89,8 +100,26 @@ def main(csv_path):
             }
         relations[rid]["paths"].append(p)
 
+    # Function to recursively replace Infinity and NaN in the data structure
+    def replace_special_floats(obj):
+        if isinstance(obj, dict):
+            return {key: replace_special_floats(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [replace_special_floats(item) for item in obj]
+        elif isinstance(obj, float):
+            if obj != obj:  # NaN check
+                return "NaN"
+            elif obj == float('inf'):
+                return "Infinity"
+            elif obj == float('-inf'):
+                return "-Infinity"  # Although you mentioned not needing this, keeping for completeness
+        return obj
+
+    # Replace special float values with string representations
+    processed_data = replace_special_floats(data)
+
     # Вывод JSON
-    print(json.dumps(data, indent=2))
+    print(json.dumps(processed_data, indent=2))
 
 
 if __name__ == "__main__":

@@ -2740,8 +2740,12 @@
             return;
           }
 
-          // Подготовить информацию для копирования
-          const pathInfo = `${selectedPath.subquery_id} ${selectedPath.subquery_level} ${selectedPath.rel_id} ${selectedPath.path_type} ${selectedPath.level} ${selectedPath.startup_cost} ${selectedPath.total_cost} ${selectedPath.rows} ${selectedPath.width}`;
+          // Подготовить информацию для копирования: level, startup_cost*100, total_cost*100 (все как целые числа)
+          const level = selectedPath.level || 0;
+          const totalCost = selectedPath.total_cost ? Math.round(parseFloat(selectedPath.total_cost) * 100) : 0;
+          const startupCost = selectedPath.startup_cost ? Math.round(parseFloat(selectedPath.startup_cost) * 100) : 0;
+
+          const pathInfo = `${level}, ${startupCost}, ${totalCost}`;
 
           // Копировать в буфер обмена
           navigator.clipboard.writeText(pathInfo)
