@@ -76,12 +76,11 @@ def main(csv_path):
                 print(f"Пропущена строка: {row} ({e})", file=sys.stderr)
                 continue
 
-    # Группировка: queries -> subqueries -> levels -> relations
+    # Группировка: queries -> subqueries -> relations (без levels)
     data = {"queries": {}}
     for p in paths:
         qid = p["query_id"]
         sid = p["subquery_id"]
-        lvl = p["level"]
         rid = p["rel_id"]
 
         queries = data["queries"]
@@ -89,18 +88,18 @@ def main(csv_path):
             queries[qid] = {"subqueries": {}}
         subqueries = queries[qid]["subqueries"]
         if sid not in subqueries:
-            subqueries[sid] = {"levels": {}}
-        levels = subqueries[sid]["levels"]
-        if lvl not in levels:
-            levels[lvl] = {"relations": {}}
-        relations = levels[lvl]["relations"]
+            subqueries[sid] = {"relations": {}}
+        relations = subqueries[sid]["relations"]
         if rid not in relations:
             relations[rid] = {
                 "name": p["rel_name"],
                 "alias": p["rel_alias"],
                 "paths": []
             }
-        relations[rid]["paths"].append(p)
+        # Добавляем поле level в сам путь, так как теперь у нас нет уровней в структуре
+        p_with_level = p.copy()
+        p_with_level["level"] = p_with_level.get("level", 1)  # Убедимся, что level есть в каждом пути
+        relations[rid]["paths"].append(p_with_level)
 
     # Function to recursively replace Infinity and NaN in the data structure
     def replace_special_floats(obj):

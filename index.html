@@ -300,11 +300,28 @@
         const subId = item.id;
         if (!expanded.has(subId)) continue;
 
-        for (const levelItem of levelNodes.values()) {
-          const parts = levelItem.id.split('-');
-          if (parts.length < 3 || parts[0] !== 'level') continue;
-          const subqueryPart = parts[1];
-          if (`subquery-${subqueryPart}` !== subId) continue;
+        // Group relations by level within each subquery
+        const relationsByLevel = new Map();
+        for (const relItem of relationNodes.values()) {
+          const relParts = relItem.id.split('-');
+          if (relParts.length < 4 || relParts[0] !== 'relation') continue;
+          const relSub = relParts[1];
+          
+          if (`subquery-${relSub}` !== subId) continue;
+          
+          const relLevel = relParts[2]; // L1, L2, etc.
+          const levelKey = `${relSub}-${relLevel}`; // Format: "1-L1"
+          if (!relationsByLevel.has(levelKey)) {
+            relationsByLevel.set(levelKey, []);
+          }
+          relationsByLevel.get(levelKey).push(relItem);
+        }
+
+        // Process each level within the subquery
+        for (const [levelKey, levelRels] of relationsByLevel.entries()) {
+          const levelItem = levelNodes.get(levelKey);
+          
+          if (!levelItem) continue;
 
           nodes.push({
             group: 'nodes',
@@ -317,20 +334,6 @@
           });
 
           if (!expanded.has(levelItem.id)) continue;
-
-          // Соберём отношения текущего уровня
-          const levelRels = [];
-          for (const relItem of relationNodes.values()) {
-            const relParts = relItem.id.split('-');
-            if (relParts.length < 4 || relParts[0] !== 'relation') continue;
-            const relSub = relParts[1];
-            const relLevel = relParts[2];
-            const expectedLevelId = `level-${relSub}-${relLevel}`;
-            if (expectedLevelId !== levelItem.id) continue;
-            levelRels.push(relItem);
-          }
-
-          if (levelRels.length === 0) continue;
 
           // Разделим на best и other
           const bestRels = levelRels.filter(rel => bestRelKeys.has(rel.id.replace('relation-', '')));
@@ -1378,19 +1381,15 @@
               const level = levelStr.substring(1); // remove 'L' prefix to get the number
               const relId = relParts[2].substring(1); // remove 'R' prefix to get the number
 
-              // Find the original relation object in the data structure
+              // Find the original relation object in the data structure (without levels)
               let originalRel = null;
               for (const [queryId, query] of Object.entries(globalData.queries)) {
                 for (const [subqueryId, subquery] of Object.entries(query.subqueries)) {
                   if (subqueryId === subKey) {
-                    for (const [levelCheck, levelObj] of Object.entries(subquery.levels)) {
-                      if (levelCheck === level) {
-                        for (const [relIdCheck, relObj] of Object.entries(levelObj.relations)) {
-                          if (relIdCheck === relId) {
-                            originalRel = relObj;
-                            break;
-                          }
-                        }
+                    for (const [relIdCheck, relObj] of Object.entries(subquery.relations)) {
+                      if (relIdCheck === relId) {
+                        originalRel = relObj;
+                        break;
                       }
                     }
                   }
@@ -2454,16 +2453,24 @@
             levelOrder.set(subKey, new Set());
           }
 
-          for (const [levelStr, levelObj] of Object.entries(subquery.levels)) {
-            const level = parseInt(levelStr, 10);
+          // Iterate through relations directly since levels are removed
+          for (const [relId, relObj] of Object.entries(subquery.relations)) {
+            // Determine the level from the first path in the relation
+            const firstPath = relObj.paths[0];
+            if (!firstPath) continue; // Skip if no paths
+            
+            const level = firstPath.level || 0;
             levelOrder.get(subKey).add(level);
             const levelKey = `${subKey}-L${level}`;
-            levelNodes.set(levelKey, { id: `level-${levelKey}`, label: `level=${level}` });
+            
+            // Create level node if it doesn't exist
+            if (!levelNodes.has(levelKey)) {
+              levelNodes.set(levelKey, { id: `level-${levelKey}`, label: `level=${level}` });
+            }
 
-            for (const [relId, relObj] of Object.entries(levelObj.relations)) {
-              const relKey = `${levelKey}-R${relId}`;
-              const relLabel = relObj.name ? `rel=${relObj.name}` : `rel_id=${relId}`;
-              relationNodes.set(relKey, { id: `relation-${relKey}`, label: relLabel });
+            const relKey = `${levelKey}-R${relId}`;
+            const relLabel = relObj.name ? `rel=${relObj.name}` : `rel_id=${relId}`;
+            relationNodes.set(relKey, { id: `relation-${relKey}`, label: relLabel });
 
             for (const path of relObj.paths) {
               const id = String(path.path_id);
@@ -2474,7 +2481,6 @@
                 _subKey: subKey,
                 rel_name: relObj.name
               });
-            }
             }
           }
         }
