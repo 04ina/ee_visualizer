@@ -200,11 +200,12 @@
       background: #f5f5f5;
     }
     #copy-selected-path { top: 10px; }
-    #reset-view { top: 50px; }
-    #collapse-all { top: 90px; }
-    #expand-best { top: 130px; }
-    #clear-filters { top: 170px; }
-    #toggle-layout { top: 210px; }
+    #copy-selected-relation { top: 50px; }
+    #reset-view { top: 90px; }
+    #collapse-all { top: 130px; }
+    #expand-best { top: 170px; }
+    #clear-filters { top: 210px; }
+    #toggle-layout { top: 250px; }
     .highlighted {
       background-color: #ffcc00 !important;
       border-color: #ff9900 !important;
@@ -239,6 +240,7 @@
     <div id="tree-container">
       <div id="cy"></div>
       <button id="copy-selected-path" class="control-button">Копировать выбранный путь</button>
+      <button id="copy-selected-relation" class="control-button">Копировать выбранное отношение</button>
       <button id="reset-view" class="control-button">Сбросить вид</button>
       <button id="collapse-all" class="control-button">Свернуть дерево</button>
       <button id="expand-best" class="control-button">Развернуть лучший план</button>
@@ -1404,6 +1406,7 @@
                 rel_name: path.rel_name || null,
                 rel_alias: path.rel_alias || null,
                 path_count: 0, // Will be counted later
+                relids: path.relids || null,
                 paths: [] // Will be filled later
               };
 
@@ -1434,7 +1437,7 @@
       // Define column order for relations table
       const relationColumns = [
         "subquery_id", "subquery_level", "level", "rel_id",
-        "rel_name", "rel_alias", "path_count"
+        "rel_name", "rel_alias", "path_count", "relids",
       ];
 
       // Create controls HTML with buttons
@@ -2740,18 +2743,84 @@
             return;
           }
 
-          // Подготовить информацию для копирования: level, startup_cost*100, total_cost*100 (все как целые числа)
+          // Подготовить информацию для копирования в новом формате JSON
           const level = selectedPath.level || 0;
-          const totalCost = selectedPath.total_cost ? Math.round(parseFloat(selectedPath.total_cost) * 100) : 0;
-          const startupCost = selectedPath.startup_cost ? Math.round(parseFloat(selectedPath.startup_cost) * 100) : 0;
+          const subqueryId = selectedPath.subquery_id || 0;
+          const pathType = selectedPath.path_type || "";
+          
+          // Преобразовать стоимости в целые числа, умножив на 100 для сохранения дробной части
+          let startupCost = selectedPath.startup_cost || 0;
+          let totalCost = selectedPath.total_cost || 0;
+          
+          // Убедиться, что стоимости являются числами и умножить на 100
+          if (typeof startupCost === 'number') {
+            startupCost = Math.round(startupCost * 100);
+          } else {
+            startupCost = Math.round(parseFloat(startupCost) * 100 || 0);
+          }
+          
+          if (typeof totalCost === 'number') {
+            totalCost = Math.round(totalCost * 100);
+          } else {
+            totalCost = Math.round(parseFloat(totalCost) * 100 || 0);
+          }
 
-          const pathInfo = `${level}, ${startupCost}, ${totalCost}`;
+          const pathInfo = JSON.stringify({
+            "fixate_type": "fixate_path",
+            "subquery_id": String(subqueryId),
+            "level": String(level),
+            "startup_cost": String(startupCost),
+            "total_cost": String(totalCost),
+            "path_type": pathType
+          });
 
           // Копировать в буфер обмена
           navigator.clipboard.writeText(pathInfo)
             .then(() => {
               // Визуальная обратная связь
               const button = document.getElementById('copy-selected-path');
+              const originalText = button.textContent;
+              button.textContent = 'Скопировано!';
+
+              setTimeout(() => {
+                button.textContent = originalText;
+              }, 2000);
+            })
+            .catch(err => {
+              console.error('Ошибка при копировании: ', err);
+              alert('Не удалось скопировать информацию: ' + err.message);
+            });
+        });
+
+        document.getElementById('copy-selected-relation').addEventListener('click', () => {
+          if (!currentSelectedPathId) {
+            alert('Сначала выберите альтернативный путь');
+            return;
+          }
+
+          const selectedPath = nodeMap.get(currentSelectedPathId);
+          if (!selectedPath) {
+            alert('Выбранный путь не найден');
+            return;
+          }
+
+          // Подготовить информацию для копирования в формате JSON для отношения
+          const level = selectedPath.level || 0;
+          const subqueryId = selectedPath.subquery_id || 0;
+          const relId = selectedPath.rel_id || 0;
+
+          const relationInfo = JSON.stringify({
+            "fixate_type": "fixate_rel",
+            "subquery_id": String(subqueryId),
+            "level": String(level),
+            "rel_id": String(relId)
+          });
+
+          // Копировать в буфер обмена
+          navigator.clipboard.writeText(relationInfo)
+            .then(() => {
+              // Визуальная обратная связь
+              const button = document.getElementById('copy-selected-relation');
               const originalText = button.textContent;
               button.textContent = 'Скопировано!';
 

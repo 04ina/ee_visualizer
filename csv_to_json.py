@@ -24,7 +24,7 @@ def main(csv_path):
         "path_type", "child_paths", "startup_cost", "total_cost", "rows",
         "width", "rel_name", "rel_alias", "indexoid", "level",
         "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor", "pathkeys_cmp",
-        "bms_cmp", "rows_cmp", "parallel_safe_cmp"
+        "bms_cmp", "rows_cmp", "parallel_safe_cmp", "disabled_nodes", "relids"
     ]
 
     paths = []
@@ -68,6 +68,8 @@ def main(csv_path):
                     "bms_cmp": clean(record["bms_cmp"]),
                     "rows_cmp": clean(record["rows_cmp"]),
                     "parallel_safe_cmp": clean(record["parallel_safe_cmp"]),
+                    "disabled_nodes": clean(record["disabled_nodes"]),
+                    "relids": clean(record["relids"]),
                 }
                 paths.append(path_entry)
             except Exception as e:
