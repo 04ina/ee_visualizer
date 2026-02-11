@@ -686,8 +686,8 @@
             const indent = "  ".repeat(depth);
 
             let line = `${indent}-> ${path.path_type}`;
-            if (path.rel_name) {
-              if (path.rel_alias && path.rel_alias !== path.rel_name) {
+            if (path.rel_name && path.rel_name !== 'null' && path.rel_name !== '(null)') {
+              if (path.rel_alias && path.rel_alias !== path.rel_name && path.rel_alias !== 'null' && path.rel_alias !== '(null)') {
                 line += ` on ${path.rel_name} ${path.rel_alias}`;
               } else {
                 line += ` on ${path.rel_name}`;
@@ -725,8 +725,8 @@
             const indent = "  ".repeat(depth);
 
             let line = `${indent}-> ${path.path_type}`;
-            if (path.rel_name) {
-              if (path.rel_alias && path.rel_alias !== path.rel_name) {
+            if (path.rel_name && path.rel_name !== 'null' && path.rel_name !== '(null)') {
+              if (path.rel_alias && path.rel_alias !== path.rel_name && path.rel_alias !== 'null' && path.rel_alias !== '(null)') {
                 line += ` on ${path.rel_name} ${path.rel_alias}`;
               } else {
                 line += ` on ${path.rel_name}`;
@@ -2234,8 +2234,8 @@
         const indent = "  ".repeat(depth);
 
         let line = `${indent}-> ${path.path_type}`;
-        if (path.rel_name) {
-          if (path.rel_alias && path.rel_alias !== path.rel_name) {
+        if (path.rel_name && path.rel_name !== 'null' && path.rel_name !== '(null)') {
+          if (path.rel_alias && path.rel_alias !== path.rel_name && path.rel_alias !== 'null' && path.rel_alias !== '(null)') {
             line += ` on ${path.rel_name} ${path.rel_alias}`;
           } else {
             line += ` on ${path.rel_name}`;
@@ -2469,7 +2469,8 @@
             }
 
             const relKey = `${levelKey}-R${relId}`;
-            const relLabel = relObj.name ? `rel=${relObj.name}` : `rel_id=${relId}`;
+            // Fix: Handle null relObj.name to avoid showing (null)
+            const relLabel = (relObj.name && relObj.name !== 'null' && relObj.name !== '(null)') ? `rel=${relObj.name}` : `rel_id=${relId}`;
             relationNodes.set(relKey, { id: `relation-${relKey}`, label: relLabel });
 
             for (const path of relObj.paths) {
