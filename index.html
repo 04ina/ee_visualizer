@@ -264,7 +264,7 @@
   <script src="cytoscape-dagre.min.js"></script>
 
   <script>
-    let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters;
+    let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters, relationFixateMap;
     let allBestRoots = [];
     let bestRelKeys = new Set();
     let currentSelectedPathId = null;
@@ -350,10 +350,15 @@
 
             if (expanded.has(bestGroup)) {
               for (const relItem of bestRels) {
+                // Check if the relation is fixed using the relationFixateMap
+                const relKey = relItem.id.replace('relation-', '');
+                const isRelFixed = relationFixateMap.get(relKey) === "true";
+                const relClasses = isRelFixed ? 'relation-group fixed-relation' : 'relation-group';
+                
                 nodes.push({
                   group: 'nodes',
                   data: { id: relItem.id, label: relItem.label, parent: bestGroup },
-                  classes: 'relation-group'
+                  classes: relClasses
                 });
 
                 if (expanded.has(relItem.id)) {
@@ -392,10 +397,14 @@
                         if (path.rows !== undefined) {
                           label += `\nrows: ${Math.round(path.rows)}`;
                         }
+                        // Determine if this path is fixed
+                        const isFixed = path.fixate === "true";
+                        const pathClasses = isFixed ? 'path-node best-path-node fixed-path' : 'path-node best-path-node';
+                        
                         nodes.push({
                           group: 'nodes',
                           data: { id, label, parent: bestGroup },
-                          classes: 'path-node best-path-node'
+                          classes: pathClasses
                         });
                       }
                     }
@@ -419,10 +428,14 @@
                         if (path.rows !== undefined) {
                           label += `\nrows: ${Math.round(path.rows)}`;
                         }
+                        // Determine if this path is fixed
+                        const isFixed = path.fixate === "true";
+                        const pathClasses = isFixed ? 'path-node fixed-path' : 'path-node';
+                        
                         nodes.push({
                           group: 'nodes',
                           data: { id, label, parent: otherGroup },
-                          classes: 'path-node'
+                          classes: pathClasses
                         });
                       }
                     }
@@ -443,10 +456,15 @@
 
             if (expanded.has(otherGroup)) {
               for (const relItem of otherRels) {
+                // Check if the relation is fixed using the relationFixateMap
+                const relKey = relItem.id.replace('relation-', '');
+                const isRelFixed = relationFixateMap.get(relKey) === "true";
+                const relClasses = isRelFixed ? 'relation-group fixed-relation' : 'relation-group';
+                
                 nodes.push({
                   group: 'nodes',
                   data: { id: relItem.id, label: relItem.label, parent: otherGroup },
-                  classes: 'relation-group'
+                  classes: relClasses
                 });
 
                 if (expanded.has(relItem.id)) {
@@ -463,10 +481,14 @@
                       label += `\nrows: ${Math.round(path.rows)}`;
                     }
 
+                    // Determine if this path is fixed
+                    const isFixed = path.fixate === "true";
+                    const pathClasses = isFixed ? 'path-node fixed-path' : 'path-node';
+                    
                     nodes.push({
                       group: 'nodes',
                       data: { id: pathIdStr, label: label, parent: relItem.id },
-                      classes: 'path-node'
+                      classes: pathClasses
                     });
                   }
                 }
@@ -2440,6 +2462,7 @@
         levelOrder = new Map();
         expanded = new Map();
         relationFilters = new Map();
+        relationFixateMap = new Map(); // Map to store fixate status for each relation
 
         const queries = Object.values(data.queries);
         if (queries.length === 0) throw new Error('Нет запросов в data.json');
@@ -2471,7 +2494,14 @@
             const relKey = `${levelKey}-R${relId}`;
             // Fix: Handle null relObj.name to avoid showing (null)
             const relLabel = (relObj.name && relObj.name !== 'null' && relObj.name !== '(null)') ? `rel=${relObj.name}` : `rel_id=${relId}`;
-            relationNodes.set(relKey, { id: `relation-${relKey}`, label: relLabel });
+            relationNodes.set(relKey, { 
+              id: `relation-${relKey}`, 
+              label: relLabel,
+              fixate: relObj.fixate 
+            });
+            
+            // Store the fixate status for this relation
+            relationFixateMap.set(relKey, relObj.fixate);
 
             for (const path of relObj.paths) {
               const id = String(path.path_id);
@@ -2480,7 +2510,8 @@
                 _relKey: relKey,
                 _levelKey: levelKey,
                 _subKey: subKey,
-                rel_name: relObj.name
+                rel_name: relObj.name,
+                rel_fixate: relObj.fixate  // Store the relation fixate status with the path
               });
             }
           }
@@ -2700,6 +2731,22 @@
                 'background-color': '#cce6ff',
                 'border-color': '#3399ff',
                 'border-width': 2
+              }
+            },
+            {
+              selector: '.fixed-path',
+              style: {
+                'background-color': '#4CAF50',
+                'border-color': '#2E7D32',
+                'color': '#000'
+              }
+            },
+            {
+              selector: '.fixed-relation',
+              style: {
+                'background-color': '#4CAF50',
+                'border-color': '#2E7D32',
+                'color': '#000'
               }
             }
           ],
