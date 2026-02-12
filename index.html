@@ -93,6 +93,30 @@
     #explain-selected-container .child-highlight {
       background-color: #e3f3fd !important;
     }
+    #explain-best-container .subquery-alt-color,
+    #explain-selected-container .subquery-alt-color {
+      background-color: #f0f8ff !important; /* More subtle light blue */
+    }
+    /* Ensure selection highlights take precedence over subquery coloring */
+    #explain-best-container .selected,
+    #explain-selected-container .selected {
+      background-color: #cce6ff !important;
+      z-index: 10 !important;
+    }
+    #explain-best-container .child-highlight,
+    #explain-selected-container .child-highlight {
+      background-color: #e3f3fd !important;
+      z-index: 5 !important;
+    }
+    /* When both selected and subquery-alt-color are applied, selected takes priority */
+    #explain-best-container .selected.subquery-alt-color,
+    #explain-selected-container .selected.subquery-alt-color {
+      background-color: #cce6ff !important;
+    }
+    #explain-best-container .child-highlight.subquery-alt-color,
+    #explain-selected-container .child-highlight.subquery-alt-color {
+      background-color: #e3f3fd !important;
+    }
     #explain-best-container .section-header,
     #explain-selected-container .section-header {
       font-weight: bold;
@@ -700,6 +724,10 @@
       if (allBestRoots.length > 0) {
         lines.push({ text: "Основной план", pathId: null });
 
+        // Track the previous subquery ID to determine when to alternate colors
+        let prevSubqueryId = null;
+        let shouldColor = false; // Start with not coloring
+
         allBestRoots.forEach((root, idx) => {
           if (idx > 0) lines.push({ text: "", pathId: null });
 
@@ -718,7 +746,21 @@
             if (path.total_cost !== undefined) {
               line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
             }
-            lines.push({ text: line, pathId: idStr });
+            
+            // Check if subquery ID has changed
+            if (prevSubqueryId !== null && path.subquery_id !== prevSubqueryId) {
+              // Subquery ID changed, toggle the color flag
+              shouldColor = !shouldColor;
+            }
+            // Update the previous subquery ID
+            prevSubqueryId = path.subquery_id;
+            
+            // Add the line with appropriate class based on coloring flag
+            lines.push({ 
+              text: line, 
+              pathId: idStr,
+              shouldColor: shouldColor
+            });
 
             if (Array.isArray(path.child_paths)) {
               for (const childId of path.child_paths) {
@@ -739,6 +781,10 @@
         if (lines.length > 0) lines.push({ text: "", pathId: null });
         lines.push({ text: "CTEs", pathId: null });
 
+        // Reset the coloring for CTEs so they don't inherit from main plan
+        let ctePrevSubqueryId = null;
+        let cteShouldColor = false;
+
         unincludedSubqueries.forEach((root, idx) => {
           if (idx > 0) lines.push({ text: "", pathId: null });
 
@@ -757,7 +803,21 @@
             if (path.total_cost !== undefined) {
               line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
             }
-            lines.push({ text: line, pathId: idStr });
+            
+            // Check if subquery ID has changed for CTEs
+            if (ctePrevSubqueryId !== null && path.subquery_id !== ctePrevSubqueryId) {
+              // Subquery ID changed, toggle the color flag
+              cteShouldColor = !cteShouldColor;
+            }
+            // Update the previous subquery ID
+            ctePrevSubqueryId = path.subquery_id;
+            
+            // Add the line with appropriate class based on coloring flag
+            lines.push({ 
+              text: line, 
+              pathId: idStr,
+              shouldColor: cteShouldColor
+            });
 
             if (Array.isArray(path.child_paths)) {
               for (const childId of path.child_paths) {
@@ -774,9 +834,10 @@
       }
 
       const explainBestContainer = document.getElementById('explain-best-container');
-      explainBestContainer.innerHTML = lines.map(({ text, pathId }) => {
+      explainBestContainer.innerHTML = lines.map(({ text, pathId, shouldColor }) => {
         if (pathId) {
-          return `<div class="path-line" data-path-id="${pathId}">${text}</div>`;
+          const colorClass = shouldColor ? 'subquery-alt-color' : '';
+          return `<div class="path-line ${colorClass}" data-path-id="${pathId}">${text}</div>`;
         }
         return `<div class="section-header">${text}</div>`;
       }).join('');
@@ -2250,6 +2311,10 @@
       // Add header for the selected path
       lines.push({ text: "Выбранный альтернативный путь", pathId: null });
 
+      // Track the previous subquery ID to determine when to alternate colors
+      let prevSubqueryId = null;
+      let shouldColor = false; // Start with not coloring
+
       // Recursive function to collect all children of the selected path
       const collectLines = (path, depth) => {
         const idStr = String(path.path_id);
@@ -2266,7 +2331,21 @@
         if (path.total_cost !== undefined) {
           line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
         }
-        lines.push({ text: line, pathId: idStr });
+        
+        // Check if subquery ID has changed
+        if (prevSubqueryId !== null && path.subquery_id !== prevSubqueryId) {
+          // Subquery ID changed, toggle the color flag
+          shouldColor = !shouldColor;
+        }
+        // Update the previous subquery ID
+        prevSubqueryId = path.subquery_id;
+        
+        // Add the line with appropriate class based on coloring flag
+        lines.push({ 
+          text: line, 
+          pathId: idStr,
+          shouldColor: shouldColor
+        });
 
         if (Array.isArray(path.child_paths)) {
           for (const childId of path.child_paths) {
@@ -2282,9 +2361,10 @@
       collectLines(selectedPath, 0);
 
       const selectedContainer = document.getElementById('explain-selected-container');
-      selectedContainer.innerHTML = lines.map(({ text, pathId }) => {
+      selectedContainer.innerHTML = lines.map(({ text, pathId, shouldColor }) => {
         if (pathId) {
-          return `<div class="path-line" data-path-id="${pathId}">${text}</div>`;
+          const colorClass = shouldColor ? 'subquery-alt-color' : '';
+          return `<div class="path-line ${colorClass}" data-path-id="${pathId}">${text}</div>`;
         }
         return `<div class="section-header">${text}</div>`;
       }).join('');
