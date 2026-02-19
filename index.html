@@ -230,6 +230,13 @@
     #expand-best { top: 170px; }
     #clear-filters { top: 210px; }
     #toggle-layout { top: 250px; }
+    #back-button { top: 290px; }
+    #forward-button { top: 330px; }
+    .control-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
     .highlighted {
       background-color: #ffcc00 !important;
       border-color: #ff9900 !important;
@@ -270,6 +277,8 @@
       <button id="expand-best" class="control-button">Развернуть лучший план</button>
       <button id="clear-filters" class="control-button">Сбросить фильтры</button>
       <button id="toggle-layout" class="control-button">Повернуть layout</button>
+      <button id="back-button" class="control-button" disabled>← Назад</button>
+      <button id="forward-button" class="control-button" disabled>Вперед →</button>
     </div>
     <div id="vertical-resizer"></div>
     <div id="right-container">
@@ -295,6 +304,10 @@
     let bestPathIds = new Set();
     let bestSubqueryIds = new Set();
     let currentLayoutDirection = 'LR';
+    
+    // Path history for back/forward navigation
+    let pathHistory = [];
+    let pathHistoryIndex = -1;
 
     function isPathVisible(pathIdStr) {
       const path = nodeMap.get(pathIdStr);
@@ -852,6 +865,9 @@
           el.classList.add('selected');
           const pathId = el.getAttribute('data-path-id');
           currentSelectedPathId = pathId;
+          
+          // Add to history
+          addToHistory(pathId);
 
           highlightChildNodesInExplain(pathId);
 
@@ -1326,6 +1342,10 @@
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
           currentSelectedPathId = pathId;
+          
+          // Add to history
+          addToHistory(pathId);
+          
           highlightPathInTree(pathId);
 
           if (bestPathIds.has(pathId)) {
@@ -2238,6 +2258,10 @@
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
           currentSelectedPathId = pathId;
+          
+          // Add to history
+          addToHistory(pathId);
+          
           highlightPathInTree(pathId);
 
           if (bestPathIds.has(pathId)) {
@@ -2380,6 +2404,9 @@
           el.classList.add('selected');
           const pathId = el.getAttribute('data-path-id');
           currentSelectedPathId = pathId;
+          
+          // Add to history
+          addToHistory(pathId);
 
           highlightChildNodesInExplain(pathId);
 
@@ -3091,6 +3118,9 @@
 
           // Update the current selected path
           currentSelectedPathId = nodeId;
+          
+          // Add to history
+          addToHistory(nodeId);
 
           // Highlight the clicked path node in the tree
           const node = cy.getElementById(nodeId);
@@ -3226,6 +3256,94 @@
           }
         }
       });
+
+      // === Path History Navigation Functions ===
+      function addToHistory(pathId) {
+        // Remove any forward history when a new path is selected
+        if (pathHistoryIndex < pathHistory.length - 1) {
+          pathHistory = pathHistory.slice(0, pathHistoryIndex + 1);
+        }
+        
+        // Don't add duplicate consecutive entries
+        if (pathHistory.length === 0 || pathHistory[pathHistory.length - 1] !== pathId) {
+          pathHistory.push(pathId);
+          pathHistoryIndex = pathHistory.length - 1;
+        }
+        
+        updateNavigationButtons();
+      }
+
+      function navigateBack() {
+        if (pathHistoryIndex > 0) {
+          pathHistoryIndex--;
+          const pathId = pathHistory[pathHistoryIndex];
+          selectPathFromHistory(pathId);
+          updateNavigationButtons();
+        }
+      }
+
+      function navigateForward() {
+        if (pathHistoryIndex < pathHistory.length - 1) {
+          pathHistoryIndex++;
+          const pathId = pathHistory[pathHistoryIndex];
+          selectPathFromHistory(pathId);
+          updateNavigationButtons();
+        }
+      }
+
+      function updateNavigationButtons() {
+        const backButton = document.getElementById('back-button');
+        const forwardButton = document.getElementById('forward-button');
+        
+        if (backButton) {
+          backButton.disabled = pathHistoryIndex <= 0;
+        }
+        if (forwardButton) {
+          forwardButton.disabled = pathHistoryIndex >= pathHistory.length - 1;
+        }
+      }
+
+      function selectPathFromHistory(pathId) {
+        // Highlight the path in the tree
+        highlightPathInTree(pathId);
+        
+        // Highlight child nodes in EXPLAIN
+        highlightChildNodesInExplain(pathId);
+        
+        // Update the current selected path
+        currentSelectedPathId = pathId;
+        
+        // Update EXPLAIN panel selection
+        document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+        document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+        document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+        
+        const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+        if (explainLine) {
+          explainLine.classList.add('selected');
+        }
+        
+        // Update table selection
+        const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
+        if (tableRow) {
+          const isBestPath = bestPathIds.has(pathId);
+          tableRow.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
+        }
+        
+        // Render the selected path with its children
+        renderSelectedPathWithChildren(pathId);
+        
+        // Update the table if needed
+        const clickedPath = nodeMap.get(pathId);
+        if (clickedPath && currentTableType === 'relations') {
+          showRelationsTable(pathId);
+          highlightCorrespondingRelation(pathId);
+        }
+      }
+
+      // Add event listeners for back/forward buttons
+      document.getElementById('back-button')?.addEventListener('click', navigateBack);
+      document.getElementById('forward-button')?.addEventListener('click', navigateForward);
   </script>
 </body>
 </html>
