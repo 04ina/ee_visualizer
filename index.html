@@ -2878,6 +2878,7 @@
           }
 
           // Подготовить информацию для копирования в новом формате JSON
+          const relId = selectedPath.rel_id || 0;
           const level = selectedPath.level || 0;
           const subqueryId = selectedPath.subquery_id || 0;
           const pathType = selectedPath.path_type || "";
@@ -2903,6 +2904,7 @@
             "fixate_type": "fixate_path",
             "subquery_id": String(subqueryId),
             "level": String(level),
+            "rel_id": String(relId),
             "startup_cost": String(startupCost),
             "total_cost": String(totalCost),
             "path_type": pathType
