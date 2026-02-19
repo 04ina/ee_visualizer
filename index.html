@@ -2830,7 +2830,51 @@
               }
             }
           ],
-          layout: { name: 'null' }
+          layout: { name: 'null' },
+          // Keep default panning enabled for left mouse button
+          panningEnabled: true,
+          boxSelectionEnabled: false
+        });
+
+        // Right-click panning functionality (works even over nodes)
+        let isRightMouseDown = false;
+        let lastMousePos = null;
+
+        // Use raw DOM events to capture right-click before Cytoscape handles it
+        const cyContainer = document.getElementById('cy');
+        
+        cyContainer.addEventListener('mousedown', function(e){
+          if (e.button === 2) { // Right mouse button
+            isRightMouseDown = true;
+            lastMousePos = { x: e.clientX, y: e.clientY };
+            e.preventDefault();
+          }
+        });
+
+        document.addEventListener('mouseup', function(e){
+          if (e.button === 2) {
+            isRightMouseDown = false;
+            lastMousePos = null;
+          }
+        });
+
+        document.addEventListener('mousemove', function(e){
+          if (isRightMouseDown && lastMousePos) {
+            const dx = e.clientX - lastMousePos.x;
+            const dy = e.clientY - lastMousePos.y;
+            
+            const pan = cy.pan();
+            cy.pan({ x: pan.x + dx, y: pan.y + dy });
+            
+            lastMousePos = { x: e.clientX, y: e.clientY };
+            e.preventDefault();
+          }
+        });
+
+        // Prevent context menu on right-click over the cy container
+        cyContainer.addEventListener('contextmenu', function(e){
+          e.preventDefault();
+          return false;
         });
 
         refreshGraph();
