@@ -223,9 +223,12 @@
       padding: 6px 8px;
       text-align: left;
       white-space: nowrap;
-      max-width: 200px;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    th[data-column="path_type"],
+    td[data-column="path_type"] {
+      max-width: none;
     }
     th {
       background-color: #eee;
@@ -272,6 +275,87 @@
       height: 2px;
       background-color: currentColor;
       pointer-events: none;
+    }
+    /* Expand/collapse button styles */
+    .expand-btn {
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border: 1px solid #999;
+      background: #f0f0f0;
+      border-radius: 3px;
+      font-size: 12px;
+      line-height: 1;
+      color: #333;
+      margin-right: 4px;
+    }
+    .expand-btn:hover {
+      background: #e0e0e0;
+    }
+    .expand-btn.no-children {
+      visibility: hidden;
+    }
+    .expand-all-btn {
+      font-size: 10px;
+      width: 14px;
+      height: 14px;
+      margin-right: 2px;
+      border: 1px solid #999;
+      background: #f0f0f0;
+      border-radius: 3px;
+      color: #333;
+    }
+    .expand-all-btn:hover {
+      background: #e0e0e0;
+    }
+    .navigate-btn {
+      font-size: 10px;
+      width: 14px;
+      height: 14px;
+      margin-right: 2px;
+      border: 1px solid #999;
+      background: #f0f0f0;
+      border-radius: 3px;
+      color: #333;
+    }
+    .navigate-btn:hover {
+      background: #e0e0e0;
+    }
+    .navigate-btn-disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .ancestor-btn {
+      font-size: 10px;
+      width: 14px;
+      height: 14px;
+      margin-right: 2px;
+      border: 1px solid #999;
+      background: #f0f0f0;
+      border-radius: 3px;
+      color: #333;
+    }
+    .ancestor-btn:hover {
+      background: #e0e0e0;
+    }
+    .ancestor-btn-disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .ancestor-row {
+      background-color: #fffacd !important;
+    }
+    .ancestor-row td {
+      background-color: #fffacd !important;
+    }
+    .child-row {
+      background-color: #f9f9f9;
     }
   </style>
 </head>
@@ -326,10 +410,13 @@
     let bestPathIds = new Set();
     let bestSubqueryIds = new Set();
     let currentLayoutDirection = 'LR';
-    
+
     // Path history for back/forward navigation
     let pathHistory = [];
     let pathHistoryIndex = -1;
+
+    // Track expanded paths in the alternative paths table
+    let expandedTablePaths = new Set();
 
     function isPathVisible(pathIdStr) {
       const path = nodeMap.get(pathIdStr);
@@ -1030,6 +1117,157 @@
     // Current active table type
     let currentTableType = 'alternative-paths'; // 'alternative-paths', 'relations'
 
+    // Helper function to collect all ancestor paths
+    function collectAncestorPaths(pathId) {
+      const path = nodeMap.get(String(pathId));
+      if (!path || !path.parent_path) {
+        return [];
+      }
+
+      const result = [];
+      let currentPath = path;
+      while (currentPath && currentPath.parent_path) {
+        const parentPath = nodeMap.get(String(currentPath.parent_path));
+        if (parentPath) {
+          result.push({ path: parentPath });
+          currentPath = parentPath;
+        } else {
+          break;
+        }
+      }
+      return result;
+    }
+
+    // Helper function to collect only immediate child paths
+    function collectImmediateChildPaths(pathId) {
+      const path = nodeMap.get(String(pathId));
+      if (!path || !path.child_paths || path.child_paths.length === 0) {
+        return [];
+      }
+
+      const result = [];
+      for (const childId of path.child_paths) {
+        const childPath = nodeMap.get(String(childId));
+        if (childPath) {
+          result.push({ path: childPath, depth: 1 });
+        }
+      }
+      return result;
+    }
+
+    // Helper function to recursively collect all child paths
+    function collectAllChildPaths(pathId, depth = 0) {
+      const path = nodeMap.get(String(pathId));
+      if (!path || !path.child_paths || path.child_paths.length === 0) {
+        return [];
+      }
+
+      const result = [];
+      for (const childId of path.child_paths) {
+        const childPath = nodeMap.get(String(childId));
+        if (childPath) {
+          result.push({ path: childPath, depth: depth + 1 });
+          const grandchildren = collectAllChildPaths(childId, depth + 1);
+          result.push(...grandchildren);
+        }
+      }
+      return result;
+    }
+
+    // Helper function to render a single row with expand button
+    function renderPathRow(p, displayedColumns, isParentRow = true, depth = 0, hasChildren = false, isExpanded = false, isExpandAll = false, isAncestor = false, isOriginalClickedPath = false) {
+      const pathIdStr = String(p.path_id);
+      const isSelected = String(p.path_id) === currentSelectedPathId;
+      const isBestPath = bestPathIds.has(pathIdStr);
+
+      let rowClass = '';
+      if (isSelected) rowClass = 'selected-row';
+      if (isBestPath) rowClass += (rowClass ? ' ' : '') + 'best-path-row';
+      if (!isParentRow) rowClass += (rowClass ? ' ' : '') + 'child-row';
+      if (isAncestor) rowClass += (rowClass ? ' ' : '') + 'ancestor-row';
+
+      let expandButton = '';
+      let expandAllButton = '';
+      let navigateButton = '';
+      let ancestorButton = '';
+      if (hasChildren) {
+        const symbol = isExpanded ? '−' : '+';
+        expandButton = `<span class="expand-btn" data-path-id="${pathIdStr}">${symbol}</span>`;
+        // Expand all button (down arrow) - only show for parent rows or when isExpandAll is true
+        if (isParentRow || isExpandAll) {
+          expandAllButton = `<span class="expand-btn expand-all-btn" data-path-id="${pathIdStr}" title="Развернуть все дочерние пути">⬇</span>`;
+        }
+      } else {
+        expandButton = `<span class="expand-btn no-children"></span>`;
+      }
+
+      // Navigate button (right arrow) - show for all rows
+      // For parent rows, it's disabled since we're already viewing their alternatives
+      if (isParentRow) {
+        navigateButton = `<span class="expand-btn navigate-btn navigate-btn-disabled" title="Альтернативные пути уже отображаются">➡</span>`;
+      } else {
+        navigateButton = `<span class="expand-btn navigate-btn" data-path-id="${pathIdStr}" title="Показать альтернативные пути">➡</span>`;
+      }
+
+      // Ancestor button (up arrow) - only active for the original clicked path
+      // Disabled for child rows, ancestor rows, and parent rows
+      if (isOriginalClickedPath) {
+        ancestorButton = `<span class="expand-btn ancestor-btn" data-path-id="${pathIdStr}" title="Показать вышестоящие пути">⬆</span>`;
+      } else {
+        ancestorButton = `<span class="expand-btn ancestor-btn ancestor-btn-disabled" title="Нет вышестоящих путей">⬆</span>`;
+      }
+
+      let rowHTML = `<tr data-path-id="${pathIdStr}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
+
+      // First column: expand/collapse buttons
+      rowHTML += `<td style="width: 90px; text-align: center;">${expandButton}${expandAllButton}${navigateButton}${ancestorButton}</td>`;
+
+      // Render all other cells
+      for (let i = 0; i < displayedColumns.length; i++) {
+        const col = displayedColumns[i];
+        const val = p[col] !== undefined ? p[col] : '';
+        let dv;
+        if (typeof val === 'number') {
+          if (Number.isInteger(val)) {
+            dv = String(val);
+          } else {
+            if (col === 'fuzz_factor') {
+              dv = String(val);
+            } else {
+              dv = val.toFixed(2);
+            }
+          }
+        } else {
+          dv = String(val);
+        }
+
+        // Add indent only in path_type column for child rows
+        if (col === 'path_type' && depth > 0) {
+          const indentWidth = depth * 12;
+          rowHTML += `<td><span style="display:inline-block;width:${indentWidth}px;"></span>${dv}</td>`;
+        } else {
+          rowHTML += `<td>${dv}</td>`;
+        }
+      }
+
+      rowHTML += '</tr>';
+
+      // Add child rows if expanded
+      if (hasChildren && isExpanded) {
+        const children = collectImmediateChildPaths(pathIdStr);
+        for (const { path: childPath, depth: childDepth } of children) {
+          const childPathIdStr = String(childPath.path_id);
+          const childHasChildren = childPath.child_paths && childPath.child_paths.length > 0;
+          const childIsExpanded = expandedTablePaths.has(childPathIdStr);
+          // Pass isExpandAll=true for children so they show the expand-all button
+          rowHTML += renderPathRow(childPath, displayedColumns, false, depth + childDepth,
+                                   childHasChildren, childIsExpanded, true, false, false);
+        }
+      }
+
+      return rowHTML;
+    }
+
     function showAlternativePaths(clickedPathId) {
       const clickedPath = nodeMap.get(clickedPathId);
       if (!clickedPath) return;
@@ -1044,9 +1282,10 @@
       }
 
       const COLUMN_ORDER = [
+        "path_type", "startup_cost", "total_cost", "rows", "width",
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
-        "path_type", "rel_name", "rel_alias", "indexoid", "level",
-        "child_paths", "startup_cost", "total_cost", "rows", "width",
+        "rel_name", "rel_alias", "indexoid", "level",
+        "child_paths",
         "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor",
         "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
       ];
@@ -1109,39 +1348,20 @@
 
       // Только видимые столбцы
       const displayedColumns = allColumns.filter(col => visibleColumns.has(col));
+      tableHTML += `<th></th>`; // Empty header for expand/collapse buttons column
       displayedColumns.forEach(col => {
         tableHTML += `<th data-column="${col}">${col}</th>`;
       });
       tableHTML += '</tr></thead><tbody>';
 
-      alternatives.forEach(p => {
-        const isSelected = String(p.path_id) === clickedPathId;
-        const isBestPath = bestPathIds.has(String(p.path_id));
-        let rowClass = '';
-        if (isSelected) rowClass = 'selected-row';
-        if (isBestPath) rowClass += (rowClass ? ' ' : '') + 'best-path-row';
-        tableHTML += `<tr data-path-id="${p.path_id}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
-        displayedColumns.forEach(col => {
-          const value = p[col] !== undefined ? p[col] : '';
-          let displayValue;
-          if (typeof value === 'number') {
-            if (Number.isInteger(value)) {
-              displayValue = String(value);
-            } else {
-              // Preserve precision for specific columns like fuzz_factor
-              if (col === 'fuzz_factor') {
-                displayValue = String(value);
-              } else {
-                displayValue = value.toFixed(2);
-              }
-            }
-          } else {
-            displayValue = String(value);
-          }
-          tableHTML += `<td>${displayValue}</td>`;
-        });
-        tableHTML += '</tr>';
-      });
+      // Render rows with expand buttons
+      for (const p of alternatives) {
+        const pathIdStr = String(p.path_id);
+        const hasChildren = p.child_paths && p.child_paths.length > 0;
+        const isExpanded = expandedTablePaths.has(pathIdStr);
+        const isOriginalClickedPath = pathIdStr === String(clickedPathId);
+        tableHTML += renderPathRow(p, displayedColumns, true, 0, hasChildren, isExpanded, false, false, isOriginalClickedPath);
+      }
 
       tableHTML += '</tbody></table></div>';
 
@@ -1340,6 +1560,165 @@
         }
       });
 
+      // Add click handler for expand buttons (+/-)
+      container.querySelectorAll('.expand-btn:not(.expand-all-btn)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          // Toggle expanded state
+          if (expandedTablePaths.has(pathId)) {
+            expandedTablePaths.delete(pathId);
+          } else {
+            expandedTablePaths.add(pathId);
+          }
+
+          // Re-render the table with the new expanded state
+          if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+          } else {
+            showAlternativePaths(currentSelectedPathId || clickedPathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Add click handler for expand-all buttons (⬇)
+      container.querySelectorAll('.expand-all-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          const path = nodeMap.get(String(pathId));
+          if (path && path.child_paths) {
+            // Check if this path itself is expanded
+            const isExpanded = expandedTablePaths.has(pathId);
+
+            if (isExpanded) {
+              // Collapse: remove this path and all descendants from expanded set
+              function collapseAllChildren(p) {
+                if (p.child_paths) {
+                  for (const childId of p.child_paths) {
+                    expandedTablePaths.delete(String(childId));
+                    const childPath = nodeMap.get(String(childId));
+                    if (childPath) {
+                      collapseAllChildren(childPath);
+                    }
+                  }
+                }
+              }
+              expandedTablePaths.delete(pathId);
+              collapseAllChildren(path);
+            } else {
+              // Expand: add this path and all descendants to expanded set
+              function expandAllChildren(p) {
+                if (p.child_paths) {
+                  for (const childId of p.child_paths) {
+                    const childPath = nodeMap.get(String(childId));
+                    if (childPath) {
+                      expandedTablePaths.add(String(childId));
+                      expandAllChildren(childPath);
+                    }
+                  }
+                }
+              }
+              expandedTablePaths.add(pathId);
+              expandAllChildren(path);
+            }
+          }
+
+          // Re-render the table with the new expanded state
+          if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+          } else {
+            showAlternativePaths(currentSelectedPathId || clickedPathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Add click handler for navigate buttons (➡)
+      container.querySelectorAll('.navigate-btn:not(.navigate-btn-disabled)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Get the path and switch to its relation's alternative paths
+          const path = nodeMap.get(String(pathId));
+          if (path) {
+            // Update selected path
+            currentSelectedPathId = pathId;
+
+            // Switch to alternative paths table for this path's relation
+            showAlternativePaths(pathId);
+
+            // Scroll to the selected path after a short delay to allow rendering
+            setTimeout(() => {
+              const selectedRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
+              if (selectedRow) {
+                selectedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 50);
+          }
+        });
+      });
+
+      // Add click handler for ancestor buttons (⬆)
+      container.querySelectorAll('.ancestor-btn:not(.ancestor-btn-disabled)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          // Get the path and show its ancestors
+          const path = nodeMap.get(String(pathId));
+          if (path) {
+            // Update selected path
+            currentSelectedPathId = pathId;
+
+            // Switch to alternative paths table for this path's relation and show ancestors
+            showAlternativePathsWithAncestors(pathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
       // Клик по строке таблицы
       container.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
         row.addEventListener('click', () => {
@@ -1368,6 +1747,552 @@
           // Add to history
           addToHistory(pathId);
           
+          highlightPathInTree(pathId);
+
+          if (bestPathIds.has(pathId)) {
+            highlightChildNodesInExplain(pathId);
+          }
+
+          // Check the current table type and update accordingly
+          if (currentTableType === 'relations') {
+            // Stay on relations table but update with new clicked path context
+            showRelationsTable(pathId);
+
+            // Highlight the corresponding relation in the relations table
+            highlightCorrespondingRelation(pathId);
+          } else {
+            // For alternative paths table, behave as before
+            // Also render the selected path with its children in the right panel
+            renderSelectedPathWithChildren(pathId);
+          }
+        });
+
+        row.addEventListener('dblclick', () => {
+          const pathId = row.getAttribute('data-path-id');
+          if (pathId) {
+            const node = cy.getElementById(pathId);
+            if (node && node.length > 0) {
+              cy.animate({
+                center: {
+                  eles: node
+                },
+                zoom: 1.2,
+                duration: 500
+              });
+            } else {
+              const path = nodeMap.get(pathId);
+              if (path) {
+                const idsToTry = [
+                  `relation-${path._relKey}`,
+                  `level-${path._levelKey}`,
+                  `subquery-${path._subKey}`
+                ];
+
+                for (const id of idsToTry) {
+                  const containerNode = cy.getElementById(id);
+                  if (containerNode && containerNode.length > 0) {
+                    cy.animate({
+                      center: {
+                        eles: containerNode
+                      },
+                      zoom: 1.2,
+                      duration: 500
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        });
+      });
+    }
+
+    function showAlternativePathsWithAncestors(clickedPathId) {
+      const clickedPath = nodeMap.get(clickedPathId);
+      if (!clickedPath) return;
+
+      const relKey = clickedPath._relKey;
+      const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
+
+      // Collect ancestor paths
+      const ancestors = collectAncestorPaths(clickedPathId);
+      const ancestorPathIds = new Set(ancestors.map(a => String(a.path.path_id)));
+
+      const container = document.getElementById('empty-container');
+      if (alternatives.length === 0) {
+        container.innerHTML = 'Альтернативные пути не найдены.';
+        return;
+      }
+
+      const COLUMN_ORDER = [
+        "path_type", "startup_cost", "total_cost", "rows", "width",
+        "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
+        "rel_name", "rel_alias", "indexoid", "level",
+        "child_paths",
+        "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor",
+        "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
+      ];
+
+      const allKeys = new Set();
+      for (const p of alternatives) {
+        for (const key in p) {
+          if (!key.startsWith('_')) {
+            allKeys.add(key);
+          }
+        }
+      }
+
+      const orderedColumns = COLUMN_ORDER.filter(col => allKeys.has(col));
+      const extraKeys = Array.from(allKeys).filter(k => !COLUMN_ORDER.includes(k));
+      const allColumns = [...orderedColumns, ...extraKeys];
+
+      // Инициализируем глобальные настройки один раз
+      if (globalVisibleColumns === null) {
+        globalVisibleColumns = new Set(allColumns);
+      } else {
+        // Удаляем столбцы, которых больше нет в текущих данных
+        for (const col of Array.from(globalVisibleColumns)) {
+          if (!allColumns.includes(col)) {
+            globalVisibleColumns.delete(col);
+          }
+        }
+      }
+      const visibleColumns = globalVisibleColumns;
+
+      // Удаляем столбцы, которых больше нет в данных
+      for (const col of Array.from(visibleColumns)) {
+        if (!allColumns.includes(col)) {
+          visibleColumns.delete(col);
+        }
+      }
+
+      // Формируем HTML
+      let controlsHTML = `
+        <div id="table-controls">
+          <button class="table-control-btn ${currentTableType === 'alternative-paths' ? 'active' : ''}" data-table-type="alternative-paths">Альтернативные пути</button>
+          <button class="table-control-btn ${currentTableType === 'relations' ? 'active' : ''}" data-table-type="relations">Отношения</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; margin-top:10px;">
+          <input type="text" id="table-search" placeholder="🔍 Поиск в таблице..."
+                style="flex:1; min-width:150px; padding:6px 10px; border:1px solid #ccc; border-radius:3px; font-size:13px;">
+          <div style="position:relative; display:inline-block;">
+            <button id="toggle-columns-btn" type="button"
+                    style="padding:6px 10px; border:1px solid #ccc; background:#fff; border-radius:3px; cursor:pointer; font-size:13px;">
+              ⚙️ Столбцы
+            </button>
+            <div id="columns-dropdown" style="display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #ccc; border-radius:3px; z-index:1000; max-height:300px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+              ${renderGroupedColumns(allColumns, visibleColumns)}
+            </div>
+          </div>
+        </div>
+      `;
+
+      let tableHTML = `<div id="table-wrapper" style="max-height:100%; overflow:auto;"><table><thead><tr>`;
+
+      // Только видимые столбцы
+      const displayedColumns = allColumns.filter(col => visibleColumns.has(col));
+      tableHTML += `<th></th>`; // Empty header for expand/collapse buttons column
+      displayedColumns.forEach(col => {
+        tableHTML += `<th data-column="${col}">${col}</th>`;
+      });
+      tableHTML += '</tr></thead><tbody>';
+
+      // Render ancestor paths first (in reverse order - from top to clicked path's parent)
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const { path: ancestorPath } = ancestors[i];
+        const ancestorPathIdStr = String(ancestorPath.path_id);
+        const ancestorHasChildren = ancestorPath.child_paths && ancestorPath.child_paths.length > 0;
+        const ancestorIsExpanded = expandedTablePaths.has(ancestorPathIdStr);
+        tableHTML += renderPathRow(ancestorPath, displayedColumns, true, 0, ancestorHasChildren, ancestorIsExpanded, false, true, false);
+      }
+
+      // Render alternatives
+      for (const p of alternatives) {
+        const pathIdStr = String(p.path_id);
+        const hasChildren = p.child_paths && p.child_paths.length > 0;
+        const isExpanded = expandedTablePaths.has(pathIdStr);
+        const isAncestor = ancestorPathIds.has(pathIdStr);
+        const isOriginalClickedPath = pathIdStr === String(clickedPathId);
+        tableHTML += renderPathRow(p, displayedColumns, true, 0, hasChildren, isExpanded, false, isAncestor, isOriginalClickedPath);
+      }
+
+      tableHTML += '</tbody></table></div>';
+
+      // Сохраняем состояние меню: открыто ли и позицию прокрутки
+      const oldDropdown = document.getElementById('columns-dropdown');
+      const wasDropdownOpen = oldDropdown?.style.display === 'block';
+      const scrollPos = oldDropdown?.scrollTop || 0;
+
+      // Clear previous highlights before rendering the new table
+      document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
+      // Перерисовываем
+      container.innerHTML = `
+        <div id="columns-controls">${controlsHTML}</div>
+        <div id="table-container">${tableHTML}</div>
+      `;
+
+      // Восстанавливаем состояние
+      if (wasDropdownOpen) {
+        const newDropdown = document.getElementById('columns-dropdown');
+        if (newDropdown) {
+          newDropdown.style.display = 'block';
+          newDropdown.scrollTop = scrollPos;
+        }
+      }
+
+      if (wasDropdownOpen) {
+        document.getElementById('columns-dropdown').style.display = 'block';
+      }
+
+      // === Обработчики ===
+      const dropdown = document.getElementById('columns-dropdown');
+      const toggleBtn = document.getElementById('toggle-columns-btn');
+
+      // Add event listeners for table type buttons
+      const tableButtons = container.querySelectorAll('.table-control-btn');
+      if (tableButtons.length > 0) {
+        tableButtons.forEach(btn => {
+          btn.addEventListener('click', function() {
+            const tableType = this.getAttribute('data-table-type');
+            currentTableType = tableType;
+
+            // Update active button
+            container.querySelectorAll('.table-control-btn').forEach(b => {
+              b.classList.remove('active');
+            });
+            this.classList.add('active');
+
+            // Show the appropriate table
+            if (tableType === 'relations') {
+              showRelationsTable(clickedPathId);
+              // Highlight the corresponding relation
+              highlightCorrespondingRelation(clickedPathId);
+            } else {
+              showAlternativePathsWithAncestors(clickedPathId); // Refresh current view
+            }
+          });
+        });
+      }
+
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+
+        // Установка indeterminate состояния для групповых чекбоксов при открытии
+        if (dropdown.style.display === 'block') {
+          setTimeout(() => {
+            setGroupIndeterminateStates(dropdown);
+          }, 0);
+        }
+      });
+
+      // Обработка чекбоксов
+      dropdown.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+          if (this.classList.contains('column-checkbox')) {
+            // Обработка индивидуального столбца
+            const col = this.getAttribute('data-column');
+            if (this.checked) {
+              visibleColumns.add(col);
+            } else {
+              visibleColumns.delete(col);
+            }
+          } else if (this.classList.contains('group-checkbox')) {
+            // Обработка группы столбцов
+            const groupName = this.getAttribute('data-group');
+            const groupColumns = Array.from(dropdown.querySelectorAll(`input[data-group="${groupName}"].column-checkbox`));
+
+            if (this.checked) {
+              // Включить все столбцы в группе
+              groupColumns.forEach(checkbox => {
+                const col = checkbox.getAttribute('data-column');
+                visibleColumns.add(col);
+                checkbox.checked = true;
+              });
+            } else {
+              // Выключить все столбцы в группе
+              groupColumns.forEach(checkbox => {
+                const col = checkbox.getAttribute('data-column');
+                visibleColumns.delete(col);
+                checkbox.checked = false;
+              });
+            }
+
+            // Обновить indeterminate состояние для всех групп
+            setGroupIndeterminateStates(dropdown);
+          }
+
+          // Перерисовать таблицу один раз после изменения
+          showAlternativePathsWithAncestors(clickedPathId);
+        });
+      });
+
+      const searchInput = document.getElementById('table-search');
+      const rows = container.querySelectorAll('#table-wrapper tbody tr');
+
+      searchInput.addEventListener('input', () => {
+        const term = searchInput.value.toLowerCase().trim();
+        rows.forEach(row => {
+          let found = term === '';
+          if (!found) {
+            const cells = row.querySelectorAll('td');
+            for (const cell of cells) {
+              if (cell.textContent.toLowerCase().includes(term)) {
+                found = true;
+                break;
+              }
+            }
+          }
+          row.style.display = found ? '' : 'none';
+        });
+      });
+
+      // Сортировка — только по видимым столбцам
+      displayedColumns.forEach((col, idx) => {
+        const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
+        if (th) {
+          th.addEventListener('click', () => {
+            let newSort;
+            if (th.classList.contains('sort-asc')) {
+              newSort = 'desc';
+            } else if (th.classList.contains('sort-desc')) {
+              newSort = null;
+            } else {
+              newSort = 'asc';
+            }
+
+            container.querySelectorAll('#table-wrapper th').forEach(t => {
+              t.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            if (newSort) {
+              th.classList.add(newSort === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+
+            if (newSort) {
+              const tbody = th.closest('table').querySelector('tbody');
+              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+
+              visibleRows.sort((a, b) => {
+                const aValue = a.cells[idx]?.textContent.trim() || '';
+                const bValue = b.cells[idx]?.textContent.trim() || '';
+
+                let aNum = parseFloat(aValue);
+                let bNum = parseFloat(bValue);
+
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                  return newSort === 'asc' ? aNum - bNum : bNum - aNum;
+                } else {
+                  return newSort === 'asc'
+                    ? aValue.localeCompare(bValue)
+                    : bValue.localeCompare(aValue);
+                }
+              });
+
+              visibleRows.forEach(row => tbody.appendChild(row));
+            } else {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const verticalScroll = tableWrapper.scrollTop;
+              const horizontalScroll = tableWrapper.scrollLeft;
+
+              const tbody = th.closest('table').querySelector('tbody');
+              const allRows = Array.from(tbody.children);
+              allRows.sort((a, b) => {
+                const aPathId = parseInt(a.getAttribute('data-path-id'));
+                const bPathId = parseInt(b.getAttribute('data-path-id'));
+                return aPathId - bPathId;
+              });
+
+              allRows.forEach(row => tbody.appendChild(row));
+
+              tableWrapper.scrollTop = verticalScroll;
+              tableWrapper.scrollLeft = horizontalScroll;
+            }
+          });
+        }
+      });
+
+      // Add click handler for expand buttons (+/-)
+      container.querySelectorAll('.expand-btn:not(.expand-all-btn):not(.ancestor-btn)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          // Toggle expanded state
+          if (expandedTablePaths.has(pathId)) {
+            expandedTablePaths.delete(pathId);
+          } else {
+            expandedTablePaths.add(pathId);
+          }
+
+          // Re-render the table with the new expanded state
+          showAlternativePathsWithAncestors(clickedPathId);
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Add click handler for expand-all buttons (⬇)
+      container.querySelectorAll('.expand-all-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          const path = nodeMap.get(String(pathId));
+          if (path && path.child_paths) {
+            // Check if this path itself is expanded
+            const isExpanded = expandedTablePaths.has(pathId);
+
+            if (isExpanded) {
+              // Collapse: remove this path and all descendants from expanded set
+              function collapseAllChildren(p) {
+                if (p.child_paths) {
+                  for (const childId of p.child_paths) {
+                    expandedTablePaths.delete(String(childId));
+                    const childPath = nodeMap.get(String(childId));
+                    if (childPath) {
+                      collapseAllChildren(childPath);
+                    }
+                  }
+                }
+              }
+              expandedTablePaths.delete(pathId);
+              collapseAllChildren(path);
+            } else {
+              // Expand: add this path and all descendants to expanded set
+              function expandAllChildren(p) {
+                if (p.child_paths) {
+                  for (const childId of p.child_paths) {
+                    const childPath = nodeMap.get(String(childId));
+                    if (childPath) {
+                      expandedTablePaths.add(String(childId));
+                      expandAllChildren(childPath);
+                    }
+                  }
+                }
+              }
+              expandedTablePaths.add(pathId);
+              expandAllChildren(path);
+            }
+          }
+
+          // Re-render the table with the new expanded state
+          showAlternativePathsWithAncestors(clickedPathId);
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Add click handler for navigate buttons (➡)
+      container.querySelectorAll('.navigate-btn:not(.navigate-btn-disabled)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Get the path and switch to its relation's alternative paths
+          const path = nodeMap.get(String(pathId));
+          if (path) {
+            // Update selected path
+            currentSelectedPathId = pathId;
+
+            // Switch to alternative paths table for this path's relation
+            showAlternativePaths(pathId);
+
+            // Scroll to the selected path after a short delay to allow rendering
+            setTimeout(() => {
+              const selectedRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
+              if (selectedRow) {
+                selectedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 50);
+          }
+        });
+      });
+
+      // Add click handler for ancestor buttons (⬆)
+      container.querySelectorAll('.ancestor-btn:not(.ancestor-btn-disabled)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          // Get the path and show its ancestors
+          const path = nodeMap.get(String(pathId));
+          if (path) {
+            // Update selected path
+            currentSelectedPathId = pathId;
+
+            // Switch to alternative paths table for this path's relation and show ancestors
+            showAlternativePathsWithAncestors(pathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Клик по строке таблицы
+      container.querySelectorAll('#table-wrapper tbody tr').forEach(row => {
+        row.addEventListener('click', () => {
+          const pathId = row.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Сброс выделения в EXPLAIN и таблице
+          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
+
+          // Clear the corresponding relation highlight
+          document.querySelectorAll('.corresponding-relation-highlight').forEach(e => e.classList.remove('corresponding-relation-highlight'));
+
+          // Выделение в EXPLAIN
+          const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+          if (explainLine) explainLine.classList.add('selected');
+
+          // Выделение в таблице
+          // Preserve the best-path-row class if this is a best path
+          const isBestPath = bestPathIds.has(pathId);
+          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
+
+          currentSelectedPathId = pathId;
+
+          // Add to history
+          addToHistory(pathId);
+
           highlightPathInTree(pathId);
 
           if (bestPathIds.has(pathId)) {
@@ -1576,7 +2501,7 @@
           <div style="position:relative; display:inline-block;">
             <button id="toggle-columns-btn" type="button"
                     style="padding:6px 10px; border:1px solid #ccc; background:#fff; border-radius:3px; cursor:pointer; font-size:13px;">
-              ⚙️ Столбцы
+              ⚙️ ��толбцы
             </button>
             <div id="columns-dropdown" style="display:none; position:absolute; top:100%; right:0; background:#fff; border:1px solid #ccc; border-radius:3px; z-index:1000; max-height:300px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
               <!-- Relations columns dropdown -->
@@ -1954,9 +2879,10 @@
       }
 
       const COLUMN_ORDER = [
+        "path_type", "startup_cost", "total_cost", "rows", "width",
         "query_id", "subquery_id", "subquery_level", "rel_id", "path_id",
-        "path_type", "rel_name", "rel_alias", "indexoid", "level",
-        "child_paths", "startup_cost", "total_cost", "rows", "width",
+        "rel_name", "rel_alias", "indexoid", "level",
+        "child_paths",
         "add_path_result", "displaced_by", "cost_cmp", "fuzz_factor",
         "pathkeys_cmp", "bms_cmp", "rows_cmp", "parallel_safe_cmp"
       ];
@@ -2019,36 +2945,20 @@
 
       // Только видимые столбцы
       const displayedColumns = allColumns.filter(col => visibleColumns.has(col));
+      tableHTML += `<th></th>`; // Empty header for expand/collapse buttons column
       displayedColumns.forEach(col => {
         tableHTML += `<th data-column="${col}">${col}</th>`;
       });
       tableHTML += '</tr></thead><tbody>';
 
-      alternatives.forEach(p => {
-        const isBestPath = bestPathIds.has(String(p.path_id));
-        const rowClass = isBestPath ? 'best-path-row' : '';
-        tableHTML += `<tr data-path-id="${p.path_id}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
-        displayedColumns.forEach(col => {
-          const value = p[col] !== undefined ? p[col] : '';
-          let displayValue;
-          if (typeof value === 'number') {
-            if (Number.isInteger(value)) {
-              displayValue = String(value);
-            } else {
-              // Preserve precision for specific columns like fuzz_factor
-              if (col === 'fuzz_factor') {
-                displayValue = String(value);
-              } else {
-                displayValue = value.toFixed(2);
-              }
-            }
-          } else {
-            displayValue = String(value);
-          }
-          tableHTML += `<td>${displayValue}</td>`;
-        });
-        tableHTML += '</tr>';
-      });
+      // Render rows with expand buttons
+      for (const p of alternatives) {
+        const pathIdStr = String(p.path_id);
+        const hasChildren = p.child_paths && p.child_paths.length > 0;
+        const isExpanded = expandedTablePaths.has(pathIdStr);
+        const isOriginalClickedPath = pathIdStr === String(clickedPathId);
+        tableHTML += renderPathRow(p, displayedColumns, true, 0, hasChildren, isExpanded, false, false, isOriginalClickedPath);
+      }
 
       tableHTML += '</tbody></table></div>';
 
@@ -2254,6 +3164,165 @@
             }
           });
         }
+      });
+
+      // Add click handler for expand buttons (+/-)
+      container.querySelectorAll('.expand-btn:not(.expand-all-btn)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          // Toggle expanded state
+          if (expandedTablePaths.has(pathId)) {
+            expandedTablePaths.delete(pathId);
+          } else {
+            expandedTablePaths.add(pathId);
+          }
+
+          // Re-render the table with the new expanded state
+          if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+          } else {
+            showAlternativePaths(currentSelectedPathId || clickedPathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Add click handler for expand-all buttons (⬇)
+      container.querySelectorAll('.expand-all-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          const path = nodeMap.get(String(pathId));
+          if (path && path.child_paths) {
+            // Check if this path itself is expanded
+            const isExpanded = expandedTablePaths.has(pathId);
+
+            if (isExpanded) {
+              // Collapse: remove this path and all descendants from expanded set
+              function collapseAllChildren(p) {
+                if (p.child_paths) {
+                  for (const childId of p.child_paths) {
+                    expandedTablePaths.delete(String(childId));
+                    const childPath = nodeMap.get(String(childId));
+                    if (childPath) {
+                      collapseAllChildren(childPath);
+                    }
+                  }
+                }
+              }
+              expandedTablePaths.delete(pathId);
+              collapseAllChildren(path);
+            } else {
+              // Expand: add this path and all descendants to expanded set
+              function expandAllChildren(p) {
+                if (p.child_paths) {
+                  for (const childId of p.child_paths) {
+                    const childPath = nodeMap.get(String(childId));
+                    if (childPath) {
+                      expandedTablePaths.add(String(childId));
+                      expandAllChildren(childPath);
+                    }
+                  }
+                }
+              }
+              expandedTablePaths.add(pathId);
+              expandAllChildren(path);
+            }
+          }
+
+          // Re-render the table with the new expanded state
+          if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+          } else {
+            showAlternativePaths(currentSelectedPathId || clickedPathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
+      });
+
+      // Add click handler for navigate buttons (➡)
+      container.querySelectorAll('.navigate-btn:not(.navigate-btn-disabled)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Get the path and switch to its relation's alternative paths
+          const path = nodeMap.get(String(pathId));
+          if (path) {
+            // Update selected path
+            currentSelectedPathId = pathId;
+
+            // Switch to alternative paths table for this path's relation
+            showAlternativePaths(pathId);
+
+            // Scroll to the selected path after a short delay to allow rendering
+            setTimeout(() => {
+              const selectedRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
+              if (selectedRow) {
+                selectedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 50);
+          }
+        });
+      });
+
+      // Add click handler for ancestor buttons (⬆)
+      container.querySelectorAll('.ancestor-btn:not(.ancestor-btn-disabled)').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent row click
+          const pathId = btn.getAttribute('data-path-id');
+          if (!pathId) return;
+
+          // Save scroll position
+          const tableWrapper = document.getElementById('table-wrapper');
+          const scrollTop = tableWrapper.scrollTop;
+          const scrollLeft = tableWrapper.scrollLeft;
+
+          // Get the path and show its ancestors
+          const path = nodeMap.get(String(pathId));
+          if (path) {
+            // Update selected path
+            currentSelectedPathId = pathId;
+
+            // Switch to alternative paths table for this path's relation and show ancestors
+            showAlternativePathsWithAncestors(pathId);
+          }
+
+          // Restore scroll position
+          const newTableWrapper = document.getElementById('table-wrapper');
+          if (newTableWrapper) {
+            newTableWrapper.scrollTop = scrollTop;
+            newTableWrapper.scrollLeft = scrollLeft;
+          }
+        });
       });
 
       // Клик по строке таблицы
