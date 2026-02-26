@@ -70,7 +70,7 @@
       background-color: #fafafa;
     }
     #vertical-resizer {
-      width: 6px;
+      width: 4px;
       background: #ccc;
       cursor: col-resize;
       user-select: none;
@@ -100,7 +100,7 @@
       cursor: pointer;
     }
     #explain-vertical-resizer {
-      width: 6px;
+      width: 4px;
       background: #ccc;
       cursor: col-resize;
       user-select: none;
@@ -133,7 +133,7 @@
     }
     #explain-best-container .subquery-alt-color,
     #explain-selected-container .subquery-alt-color {
-      background-color: #f0f8ff !important; /* More subtle light blue */
+      background-color: #f0f0f0 !important; /* More subtle light blue */
     }
     /* Ensure selection highlights take precedence over subquery coloring */
     #explain-best-container .selected,
@@ -165,7 +165,7 @@
       border-left: 3px solid #0066cc;
     }
     #horizontal-resizer {
-      height: 6px;
+      height: 4px;
       background: #ccc;
       cursor: row-resize;
       user-select: none;
@@ -2820,7 +2820,7 @@
     }
 
     function highlightPathInTree(pathId) {
-      // Сброс старой под����ветки
+      // Сброс старой подсветки
       cy.elements('.selected-in-tree').removeClass('selected-in-tree');
 
       const path = nodeMap.get(pathId);
