@@ -1467,6 +1467,7 @@
       });
 
       // Сортировка — только по видимым столбцам
+      // Sort only parent rows, child rows stay with their parents
       displayedColumns.forEach((col, idx) => {
         const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
         if (th) {
@@ -1490,11 +1491,36 @@
 
             if (newSort) {
               const tbody = th.closest('table').querySelector('tbody');
-              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+              const allRows = Array.from(tbody.querySelectorAll('tr'));
 
-              visibleRows.sort((a, b) => {
-                const aValue = a.cells[idx]?.textContent.trim() || '';
-                const bValue = b.cells[idx]?.textContent.trim() || '';
+              // Group rows: parent rows and their immediately following child rows
+              const rowGroups = [];
+              
+              for (const row of allRows) {
+                // Check if this is a parent row (not a child row)
+                if (!row.classList.contains('child-row')) {
+                  const group = [row];
+                  
+                  // Collect all immediately following sibling rows that are child rows
+                  let nextRow = row.nextElementSibling;
+                  while (nextRow && nextRow.classList.contains('child-row')) {
+                    group.push(nextRow);
+                    nextRow = nextRow.nextElementSibling;
+                  }
+                  
+                  rowGroups.push(group);
+                }
+              }
+
+              // Sort groups by parent row value
+              rowGroups.sort((groupA, groupB) => {
+                const aRow = groupA[0];
+                const bRow = groupB[0];
+                // idx is the index in displayedColumns, but cells[0] is the expand button column
+                // So we need to add 1 to get the correct cell index
+                const cellIndex = idx + 1;
+                const aValue = aRow.cells[cellIndex]?.textContent.trim() || '';
+                const bValue = bRow.cells[cellIndex]?.textContent.trim() || '';
 
                 let aNum = parseFloat(aValue);
                 let bNum = parseFloat(bValue);
@@ -1508,21 +1534,48 @@
                 }
               });
 
-              visibleRows.forEach(row => tbody.appendChild(row));
+              // Re-append rows in sorted order
+              rowGroups.forEach(group => {
+                group.forEach(row => tbody.appendChild(row));
+              });
             } else {
               const tableWrapper = document.getElementById('table-wrapper');
               const verticalScroll = tableWrapper.scrollTop;
               const horizontalScroll = tableWrapper.scrollLeft;
 
               const tbody = th.closest('table').querySelector('tbody');
-              const allRows = Array.from(tbody.children);
-              allRows.sort((a, b) => {
-                const aPathId = parseInt(a.getAttribute('data-path-id'));
-                const bPathId = parseInt(b.getAttribute('data-path-id'));
+              const allRows = Array.from(tbody.querySelectorAll('tr'));
+
+              // Group rows: parent rows and their immediately following child rows
+              const rowGroups = [];
+
+              for (const row of allRows) {
+                // Check if this is a parent row (not a child row)
+                if (!row.classList.contains('child-row')) {
+                  const group = [row];
+
+                  // Collect all immediately following sibling rows that are child rows
+                  let nextRow = row.nextElementSibling;
+                  while (nextRow && nextRow.classList.contains('child-row')) {
+                    group.push(nextRow);
+                    nextRow = nextRow.nextElementSibling;
+                  }
+
+                  rowGroups.push(group);
+                }
+              }
+
+              // Sort groups by parent path_id (original order)
+              rowGroups.sort((groupA, groupB) => {
+                const aPathId = parseInt(groupA[0].getAttribute('data-path-id'));
+                const bPathId = parseInt(groupB[0].getAttribute('data-path-id'));
                 return aPathId - bPathId;
               });
 
-              allRows.forEach(row => tbody.appendChild(row));
+              // Re-append rows in sorted order
+              rowGroups.forEach(group => {
+                group.forEach(row => tbody.appendChild(row));
+              });
 
               tableWrapper.scrollTop = verticalScroll;
               tableWrapper.scrollLeft = horizontalScroll;
@@ -1642,6 +1695,19 @@
           // Get the path and switch to its relation's alternative paths
           const path = nodeMap.get(String(pathId));
           if (path) {
+            // Save current state BEFORE navigating (to allow going back)
+            if (currentClickedPathId && currentClickedPathId !== pathId) {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const prevState = {
+                pathId: currentClickedPathId,
+                timestamp: Date.now(),
+                expandedPaths: Array.from(expandedTablePaths),
+                scrollTop: tableWrapper ? Math.round(tableWrapper.scrollTop) : 0,
+                scrollLeft: tableWrapper ? Math.round(tableWrapper.scrollLeft) : 0
+              };
+              history.pushState(prevState, '', window.location.pathname + '?path=' + encodeURIComponent(currentClickedPathId));
+            }
+
             // Save current expanded state BEFORE collapsing
             const savedExpandedPaths = Array.from(expandedTablePaths);
 
@@ -2043,6 +2109,7 @@
       });
 
       // Сортировка — только по видимым столбцам
+      // Sort only parent rows, child rows stay with their parents
       displayedColumns.forEach((col, idx) => {
         const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
         if (th) {
@@ -2066,11 +2133,36 @@
 
             if (newSort) {
               const tbody = th.closest('table').querySelector('tbody');
-              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+              const allRows = Array.from(tbody.querySelectorAll('tr'));
 
-              visibleRows.sort((a, b) => {
-                const aValue = a.cells[idx]?.textContent.trim() || '';
-                const bValue = b.cells[idx]?.textContent.trim() || '';
+              // Group rows: parent rows and their immediately following child rows
+              const rowGroups = [];
+              
+              for (const row of allRows) {
+                // Check if this is a parent row (not a child row)
+                if (!row.classList.contains('child-row')) {
+                  const group = [row];
+                  
+                  // Collect all immediately following sibling rows that are child rows
+                  let nextRow = row.nextElementSibling;
+                  while (nextRow && nextRow.classList.contains('child-row')) {
+                    group.push(nextRow);
+                    nextRow = nextRow.nextElementSibling;
+                  }
+                  
+                  rowGroups.push(group);
+                }
+              }
+
+              // Sort groups by parent row value
+              rowGroups.sort((groupA, groupB) => {
+                const aRow = groupA[0];
+                const bRow = groupB[0];
+                // idx is the index in displayedColumns, but cells[0] is the expand button column
+                // So we need to add 1 to get the correct cell index
+                const cellIndex = idx + 1;
+                const aValue = aRow.cells[cellIndex]?.textContent.trim() || '';
+                const bValue = bRow.cells[cellIndex]?.textContent.trim() || '';
 
                 let aNum = parseFloat(aValue);
                 let bNum = parseFloat(bValue);
@@ -2084,21 +2176,48 @@
                 }
               });
 
-              visibleRows.forEach(row => tbody.appendChild(row));
+              // Re-append rows in sorted order
+              rowGroups.forEach(group => {
+                group.forEach(row => tbody.appendChild(row));
+              });
             } else {
               const tableWrapper = document.getElementById('table-wrapper');
               const verticalScroll = tableWrapper.scrollTop;
               const horizontalScroll = tableWrapper.scrollLeft;
 
               const tbody = th.closest('table').querySelector('tbody');
-              const allRows = Array.from(tbody.children);
-              allRows.sort((a, b) => {
-                const aPathId = parseInt(a.getAttribute('data-path-id'));
-                const bPathId = parseInt(b.getAttribute('data-path-id'));
+              const allRows = Array.from(tbody.querySelectorAll('tr'));
+
+              // Group rows: parent rows and their immediately following child rows
+              const rowGroups = [];
+
+              for (const row of allRows) {
+                // Check if this is a parent row (not a child row)
+                if (!row.classList.contains('child-row')) {
+                  const group = [row];
+
+                  // Collect all immediately following sibling rows that are child rows
+                  let nextRow = row.nextElementSibling;
+                  while (nextRow && nextRow.classList.contains('child-row')) {
+                    group.push(nextRow);
+                    nextRow = nextRow.nextElementSibling;
+                  }
+
+                  rowGroups.push(group);
+                }
+              }
+
+              // Sort groups by parent path_id (original order)
+              rowGroups.sort((groupA, groupB) => {
+                const aPathId = parseInt(groupA[0].getAttribute('data-path-id'));
+                const bPathId = parseInt(groupB[0].getAttribute('data-path-id'));
                 return aPathId - bPathId;
               });
 
-              allRows.forEach(row => tbody.appendChild(row));
+              // Re-append rows in sorted order
+              rowGroups.forEach(group => {
+                group.forEach(row => tbody.appendChild(row));
+              });
 
               tableWrapper.scrollTop = verticalScroll;
               tableWrapper.scrollLeft = horizontalScroll;
@@ -2210,6 +2329,19 @@
           // Get the path and switch to its relation's alternative paths
           const path = nodeMap.get(String(pathId));
           if (path) {
+            // Save current state BEFORE navigating (to allow going back)
+            if (currentClickedPathId && currentClickedPathId !== pathId) {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const prevState = {
+                pathId: currentClickedPathId,
+                timestamp: Date.now(),
+                expandedPaths: Array.from(expandedTablePaths),
+                scrollTop: tableWrapper ? Math.round(tableWrapper.scrollTop) : 0,
+                scrollLeft: tableWrapper ? Math.round(tableWrapper.scrollLeft) : 0
+              };
+              history.pushState(prevState, '', window.location.pathname + '?path=' + encodeURIComponent(currentClickedPathId));
+            }
+
             // Save current expanded state BEFORE collapsing
             const savedExpandedPaths = Array.from(expandedTablePaths);
 
@@ -3120,6 +3252,7 @@
       });
 
       // Сортировка — только по видимым столбцам
+      // Sort only parent rows, child rows stay with their parents
       displayedColumns.forEach((col, idx) => {
         const th = container.querySelector(`#table-wrapper th[data-column="${col}"]`);
         if (th) {
@@ -3143,11 +3276,36 @@
 
             if (newSort) {
               const tbody = th.closest('table').querySelector('tbody');
-              const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.style.display !== 'none');
+              const allRows = Array.from(tbody.querySelectorAll('tr'));
 
-              visibleRows.sort((a, b) => {
-                const aValue = a.cells[idx]?.textContent.trim() || '';
-                const bValue = b.cells[idx]?.textContent.trim() || '';
+              // Group rows: parent rows and their immediately following child rows
+              const rowGroups = [];
+              
+              for (const row of allRows) {
+                // Check if this is a parent row (not a child row)
+                if (!row.classList.contains('child-row')) {
+                  const group = [row];
+                  
+                  // Collect all immediately following sibling rows that are child rows
+                  let nextRow = row.nextElementSibling;
+                  while (nextRow && nextRow.classList.contains('child-row')) {
+                    group.push(nextRow);
+                    nextRow = nextRow.nextElementSibling;
+                  }
+                  
+                  rowGroups.push(group);
+                }
+              }
+
+              // Sort groups by parent row value
+              rowGroups.sort((groupA, groupB) => {
+                const aRow = groupA[0];
+                const bRow = groupB[0];
+                // idx is the index in displayedColumns, but cells[0] is the expand button column
+                // So we need to add 1 to get the correct cell index
+                const cellIndex = idx + 1;
+                const aValue = aRow.cells[cellIndex]?.textContent.trim() || '';
+                const bValue = bRow.cells[cellIndex]?.textContent.trim() || '';
 
                 let aNum = parseFloat(aValue);
                 let bNum = parseFloat(bValue);
@@ -3161,21 +3319,48 @@
                 }
               });
 
-              visibleRows.forEach(row => tbody.appendChild(row));
+              // Re-append rows in sorted order
+              rowGroups.forEach(group => {
+                group.forEach(row => tbody.appendChild(row));
+              });
             } else {
               const tableWrapper = document.getElementById('table-wrapper');
               const verticalScroll = tableWrapper.scrollTop;
               const horizontalScroll = tableWrapper.scrollLeft;
 
               const tbody = th.closest('table').querySelector('tbody');
-              const allRows = Array.from(tbody.children);
-              allRows.sort((a, b) => {
-                const aPathId = parseInt(a.getAttribute('data-path-id'));
-                const bPathId = parseInt(b.getAttribute('data-path-id'));
+              const allRows = Array.from(tbody.querySelectorAll('tr'));
+
+              // Group rows: parent rows and their immediately following child rows
+              const rowGroups = [];
+
+              for (const row of allRows) {
+                // Check if this is a parent row (not a child row)
+                if (!row.classList.contains('child-row')) {
+                  const group = [row];
+
+                  // Collect all immediately following sibling rows that are child rows
+                  let nextRow = row.nextElementSibling;
+                  while (nextRow && nextRow.classList.contains('child-row')) {
+                    group.push(nextRow);
+                    nextRow = nextRow.nextElementSibling;
+                  }
+
+                  rowGroups.push(group);
+                }
+              }
+
+              // Sort groups by parent path_id (original order)
+              rowGroups.sort((groupA, groupB) => {
+                const aPathId = parseInt(groupA[0].getAttribute('data-path-id'));
+                const bPathId = parseInt(groupB[0].getAttribute('data-path-id'));
                 return aPathId - bPathId;
               });
 
-              allRows.forEach(row => tbody.appendChild(row));
+              // Re-append rows in sorted order
+              rowGroups.forEach(group => {
+                group.forEach(row => tbody.appendChild(row));
+              });
 
               tableWrapper.scrollTop = verticalScroll;
               tableWrapper.scrollLeft = horizontalScroll;
@@ -3295,6 +3480,19 @@
           // Get the path and switch to its relation's alternative paths
           const path = nodeMap.get(String(pathId));
           if (path) {
+            // Save current state BEFORE navigating (to allow going back)
+            if (currentClickedPathId && currentClickedPathId !== pathId) {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const prevState = {
+                pathId: currentClickedPathId,
+                timestamp: Date.now(),
+                expandedPaths: Array.from(expandedTablePaths),
+                scrollTop: tableWrapper ? Math.round(tableWrapper.scrollTop) : 0,
+                scrollLeft: tableWrapper ? Math.round(tableWrapper.scrollLeft) : 0
+              };
+              history.pushState(prevState, '', window.location.pathname + '?path=' + encodeURIComponent(currentClickedPathId));
+            }
+
             // Save current expanded state BEFORE collapsing
             const savedExpandedPaths = Array.from(expandedTablePaths);
 
@@ -3459,7 +3657,7 @@
       const hResizer = document.getElementById('horizontal-resizer');
       let resizing = null;
 
-      // Вертикальный ресайзер (между деревом и правой панелью)
+      // Вертикальный ресайзер (между деревом и правой па��елью)
       vResizer.addEventListener('mousedown', e => {
         resizing = 'v';
         e.preventDefault();
@@ -3504,6 +3702,9 @@
     }
 
     let globalData = null;
+
+    // Clear browser history on page load
+    history.replaceState(null, '', window.location.pathname);
 
     fetch('data.json?' + Date.now())
       .then(res => res.json())
