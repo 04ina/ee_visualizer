@@ -348,11 +348,6 @@
     </div>
     <div class="toolbar-spacer"></div>
     <div class="toolbar-group">
-      <button id="back-button" class="toolbar-button" disabled>← Назад</button>
-      <button id="forward-button" class="toolbar-button" disabled>Вперед →</button>
-    </div>
-    <div class="toolbar-spacer"></div>
-    <div class="toolbar-group">
       <button id="reset-view" class="toolbar-button">Сбросить вид</button>
       <button id="collapse-all" class="toolbar-button">Свернуть</button>
       <button id="expand-best" class="toolbar-button">Развернуть лучший</button>
@@ -388,10 +383,6 @@
     let bestPathIds = new Set();
     let bestSubqueryIds = new Set();
     let currentLayoutDirection = 'LR';
-
-    // Path history for back/forward navigation
-    let pathHistory = [];
-    let pathHistoryIndex = -1;
 
     // Track expanded paths in the alternative paths table
     let expandedTablePaths = new Set();
@@ -936,9 +927,6 @@
 
           // Update current clicked path for copy buttons
           currentClickedPathId = pathId;
-
-          // Add to history
-          addToHistory(pathId);
 
           highlightChildNodesInExplain(pathId);
 
@@ -1654,10 +1642,41 @@
           // Get the path and switch to its relation's alternative paths
           const path = nodeMap.get(String(pathId));
           if (path) {
-            // Update selected path
+            // Save current expanded state BEFORE collapsing
+            const savedExpandedPaths = Array.from(expandedTablePaths);
+
+            // Collapse all expanded paths before switching
+            expandedTablePaths.clear();
+
+            // Add to navigate history
+            currentClickedPathId = pathId;
+
+            // Highlight in EXPLAIN
+            document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+            document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+            const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+            if (explainLine) {
+              explainLine.classList.add('selected');
+            }
+
+            // Highlight in tree
+            highlightPathInTree(pathId);
 
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
+
+            // Save current scroll position AFTER rendering
+            setTimeout(() => {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const historyState = {
+                pathId: pathId,
+                timestamp: Date.now(),
+                expandedPaths: savedExpandedPaths, // Save state BEFORE collapsing
+                scrollTop: tableWrapper ? Math.round(tableWrapper.scrollTop) : 0,
+                scrollLeft: tableWrapper ? Math.round(tableWrapper.scrollLeft) : 0
+              };
+              history.pushState(historyState, '', window.location.pathname + '?path=' + encodeURIComponent(pathId));
+            }, 150);
 
           }
         });
@@ -1721,8 +1740,6 @@
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
 
 
-          // Add to history
-          addToHistory(pathId);
 
           highlightPathInTree(pathId);
 
@@ -2193,10 +2210,41 @@
           // Get the path and switch to its relation's alternative paths
           const path = nodeMap.get(String(pathId));
           if (path) {
-            // Update selected path
+            // Save current expanded state BEFORE collapsing
+            const savedExpandedPaths = Array.from(expandedTablePaths);
+
+            // Collapse all expanded paths before switching
+            expandedTablePaths.clear();
+
+            // Add to navigate history
+            currentClickedPathId = pathId;
+
+            // Highlight in EXPLAIN
+            document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+            document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+            const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+            if (explainLine) {
+              explainLine.classList.add('selected');
+            }
+
+            // Highlight in tree
+            highlightPathInTree(pathId);
 
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
+
+            // Save current scroll position AFTER rendering
+            setTimeout(() => {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const historyState = {
+                pathId: pathId,
+                timestamp: Date.now(),
+                expandedPaths: savedExpandedPaths, // Save state BEFORE collapsing
+                scrollTop: tableWrapper ? Math.round(tableWrapper.scrollTop) : 0,
+                scrollLeft: tableWrapper ? Math.round(tableWrapper.scrollLeft) : 0
+              };
+              history.pushState(historyState, '', window.location.pathname + '?path=' + encodeURIComponent(pathId));
+            }, 150);
 
           }
         });
@@ -2260,8 +2308,6 @@
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
 
 
-          // Add to history
-          addToHistory(pathId);
 
           highlightPathInTree(pathId);
 
@@ -3249,10 +3295,41 @@
           // Get the path and switch to its relation's alternative paths
           const path = nodeMap.get(String(pathId));
           if (path) {
-            // Update selected path
+            // Save current expanded state BEFORE collapsing
+            const savedExpandedPaths = Array.from(expandedTablePaths);
+
+            // Collapse all expanded paths before switching
+            expandedTablePaths.clear();
+
+            // Add to navigate history
+            currentClickedPathId = pathId;
+
+            // Highlight in EXPLAIN
+            document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
+            document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
+            const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
+            if (explainLine) {
+              explainLine.classList.add('selected');
+            }
+
+            // Highlight in tree
+            highlightPathInTree(pathId);
 
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
+
+            // Save current scroll position AFTER rendering
+            setTimeout(() => {
+              const tableWrapper = document.getElementById('table-wrapper');
+              const historyState = {
+                pathId: pathId,
+                timestamp: Date.now(),
+                expandedPaths: savedExpandedPaths, // Save state BEFORE collapsing
+                scrollTop: tableWrapper ? Math.round(tableWrapper.scrollTop) : 0,
+                scrollLeft: tableWrapper ? Math.round(tableWrapper.scrollLeft) : 0
+              };
+              history.pushState(historyState, '', window.location.pathname + '?path=' + encodeURIComponent(pathId));
+            }, 150);
 
           }
         });
@@ -3316,8 +3393,6 @@
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
 
 
-          // Add to history
-          addToHistory(pathId);
 
           highlightPathInTree(pathId);
 
@@ -3520,7 +3595,7 @@
             expanded.set(relId, true);
             expanded.set(bestPathsGroup, true);
 
-            // Рекурсивно раскрываем всех потомков
+            // ��екурсивно раскрываем всех потомков
             if (Array.isArray(path.child_paths)) {
               for (const childId of path.child_paths) {
                 const child = nodeMap.get(String(childId));
@@ -3950,8 +4025,6 @@
           // Update the current clicked path for copy buttons
           currentClickedPathId = nodeId;
 
-          // Add to history
-          addToHistory(nodeId);
 
           // Highlight the clicked path node in the tree
           const node = cy.getElementById(nodeId);
@@ -4137,92 +4210,83 @@
         }
       });
 
-      // === Path History Navigation Functions ===
+      // === Browser History Navigation ===
       function addToHistory(pathId) {
-        // Remove any forward history when a new path is selected
-        if (pathHistoryIndex < pathHistory.length - 1) {
-          pathHistory = pathHistory.slice(0, pathHistoryIndex + 1);
-        }
-        
-        // Don't add duplicate consecutive entries
-        if (pathHistory.length === 0 || pathHistory[pathHistory.length - 1] !== pathId) {
-          pathHistory.push(pathId);
-          pathHistoryIndex = pathHistory.length - 1;
-        }
-        
-        updateNavigationButtons();
+        // Save current expanded state and scroll position
+        const tableWrapper = document.getElementById('table-wrapper');
+        const state = {
+          pathId: pathId,
+          timestamp: Date.now(),
+          expandedPaths: Array.from(expandedTablePaths),
+          scrollTop: tableWrapper ? tableWrapper.scrollTop : 0,
+          scrollLeft: tableWrapper ? tableWrapper.scrollLeft : 0
+        };
+        history.pushState(state, '', window.location.pathname + '?path=' + encodeURIComponent(pathId));
       }
 
-      function navigateBack() {
-        if (pathHistoryIndex > 0) {
-          pathHistoryIndex--;
-          const pathId = pathHistory[pathHistoryIndex];
-          selectPathFromHistory(pathId);
-          updateNavigationButtons();
+      // Handle browser back/forward buttons
+      window.addEventListener('popstate', function(event) {
+        if (event.state && event.state.pathId) {
+          selectPathFromHistory(event.state);
         }
-      }
+      });
 
-      function navigateForward() {
-        if (pathHistoryIndex < pathHistory.length - 1) {
-          pathHistoryIndex++;
-          const pathId = pathHistory[pathHistoryIndex];
-          selectPathFromHistory(pathId);
-          updateNavigationButtons();
-        }
-      }
+      function selectPathFromHistory(state) {
+        const pathId = state.pathId;
 
-      function updateNavigationButtons() {
-        const backButton = document.getElementById('back-button');
-        const forwardButton = document.getElementById('forward-button');
-        
-        if (backButton) {
-          backButton.disabled = pathHistoryIndex <= 0;
+        // Restore expanded state FIRST, before rendering
+        if (state.expandedPaths) {
+          expandedTablePaths.clear();
+          state.expandedPaths.forEach(id => expandedTablePaths.add(id));
         }
-        if (forwardButton) {
-          forwardButton.disabled = pathHistoryIndex >= pathHistory.length - 1;
-        }
-      }
 
-      function selectPathFromHistory(pathId) {
         // Highlight the path in the tree
         highlightPathInTree(pathId);
-        
+
         // Highlight child nodes in EXPLAIN
         highlightChildNodesInExplain(pathId);
-        
+
         // Update the current selected path
-        
+
         // Update EXPLAIN panel selection
         document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
         document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
         document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
-        
+
         const explainLine = document.querySelector(`.path-line[data-path-id="${pathId}"]`);
         if (explainLine) {
           explainLine.classList.add('selected');
         }
-        
+
         // Update table selection
         const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
         if (tableRow) {
           const isBestPath = bestPathIds.has(pathId);
-          const isChildRow = row.classList.contains('child-row');
-          tableRow.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
+          const isChildRow = tableRow.classList.contains('child-row');
+          tableRow.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
         }
-        
-        // Render the selected path with its children
-        
-        // Update the table if needed
+
+        // Render the selected path with its children (with expanded state already set)
         const clickedPath = nodeMap.get(pathId);
-        if (clickedPath && currentTableType === 'relations') {
-          showRelationsTable(pathId);
-          highlightCorrespondingRelation(pathId);
+        if (clickedPath) {
+          // Use disableScroll to prevent auto-scrolling, we'll restore position manually
+          showAlternativePaths(pathId, true);
+
+          // Restore scroll position after table is fully rendered
+          // Use requestAnimationFrame for better timing
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const tableWrapper = document.getElementById('table-wrapper');
+              if (tableWrapper && state.scrollTop !== undefined) {
+                tableWrapper.scrollTop = state.scrollTop;
+                if (state.scrollLeft !== undefined) {
+                  tableWrapper.scrollLeft = state.scrollLeft;
+                }
+              }
+            });
+          });
         }
       }
-
-      // Add event listeners for back/forward buttons
-      document.getElementById('back-button')?.addEventListener('click', navigateBack);
-      document.getElementById('forward-button')?.addEventListener('click', navigateForward);
   </script>
 </body>
 </html>
