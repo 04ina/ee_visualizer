@@ -3954,47 +3954,6 @@
           boxSelectionEnabled: false
         });
 
-        // Right-click panning functionality (works even over nodes)
-        let isRightMouseDown = false;
-        let lastMousePos = null;
-
-        // Use raw DOM events to capture right-click before Cytoscape handles it
-        const cyContainer = document.getElementById('cy');
-        
-        cyContainer.addEventListener('mousedown', function(e){
-          if (e.button === 2) { // Right mouse button
-            isRightMouseDown = true;
-            lastMousePos = { x: e.clientX, y: e.clientY };
-            e.preventDefault();
-          }
-        });
-
-        document.addEventListener('mouseup', function(e){
-          if (e.button === 2) {
-            isRightMouseDown = false;
-            lastMousePos = null;
-          }
-        });
-
-        document.addEventListener('mousemove', function(e){
-          if (isRightMouseDown && lastMousePos) {
-            const dx = e.clientX - lastMousePos.x;
-            const dy = e.clientY - lastMousePos.y;
-            
-            const pan = cy.pan();
-            cy.pan({ x: pan.x + dx, y: pan.y + dy });
-            
-            lastMousePos = { x: e.clientX, y: e.clientY };
-            e.preventDefault();
-          }
-        });
-
-        // Prevent context menu on right-click over the cy container
-        cyContainer.addEventListener('contextmenu', function(e){
-          e.preventDefault();
-          return false;
-        });
-
         refreshGraph();
 
         document.getElementById('reset-view').addEventListener('click', () => {
@@ -4198,9 +4157,8 @@
           return visited;
         }
 
-        cy.on('tap', 'node.path-node', function (evt) {
-          const nodeId = evt.target.id();
-
+        // Helper function to select a path node (used by both left-click and right-click)
+        function selectPathNode(nodeId) {
           // Clear all selections and highlights
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
           document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
@@ -4209,7 +4167,7 @@
 
           // Update the current selected path
           currentSelectedPathId = nodeId;
-          
+
           // Add to history
           addToHistory(nodeId);
 
@@ -4296,6 +4254,11 @@
               edge.addClass('highlighted-edge');
             }
           });
+        }
+
+        cy.on('tap', 'node.path-node', function (evt) {
+          const nodeId = evt.target.id();
+          selectPathNode(nodeId);
         });
 
         cy.on('dblclick', 'node.path-node', function (evt) {
@@ -4324,6 +4287,64 @@
           if (evt.target === cy) {
             cy.elements('.highlighted, .highlighted-edge').removeClass('highlighted highlighted-edge');
           }
+        });
+
+        // Right-click (cxttap) on path nodes - selects the node
+        cy.on('cxttap', 'node.path-node', function (evt) {
+          const nodeId = evt.target.id();
+          selectPathNode(nodeId);
+        });
+
+        // Right-click panning functionality (works even over nodes)
+        let isRightMouseDown = false;
+        let lastMousePos = null;
+        let didPan = false;
+
+        // Use raw DOM events to capture right-click before Cytoscape handles it
+        const cyContainer = document.getElementById('cy');
+
+        cyContainer.addEventListener('mousedown', function(e){
+          if (e.button === 2) { // Right mouse button
+            isRightMouseDown = true;
+            lastMousePos = { x: e.clientX, y: e.clientY };
+            didPan = false;
+          }
+        });
+
+        window.addEventListener('mouseup', function(e){
+          if (e.button === 2) {
+            isRightMouseDown = false;
+            lastMousePos = null;
+          }
+        });
+
+        window.addEventListener('mousemove', function(e){
+          if (isRightMouseDown && lastMousePos) {
+            const dx = e.clientX - lastMousePos.x;
+            const dy = e.clientY - lastMousePos.y;
+
+            // Only consider it panning if moved more than a threshold
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+              didPan = true;
+            }
+
+            const pan = cy.pan();
+            cy.pan({ x: pan.x + dx, y: pan.y + dy });
+
+            lastMousePos = { x: e.clientX, y: e.clientY };
+          }
+        });
+
+        // Reset state if mouse leaves the container
+        cyContainer.addEventListener('mouseleave', function(e){
+          isRightMouseDown = false;
+          lastMousePos = null;
+        });
+
+        // Prevent context menu on right-click over the cy container
+        cyContainer.addEventListener('contextmenu', function(e){
+          e.preventDefault();
+          return false;
         });
 
         makeResizable();
