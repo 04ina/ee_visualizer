@@ -198,6 +198,13 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    #table-wrapper tbody tr {
+      background-color: #e8e8e8;
+    }
+    #table-wrapper tbody tr.child-row,
+    #table-wrapper tbody tr.child-row td {
+      background-color: #fff;
+    }
     th[data-column="path_type"],
     td[data-column="path_type"] {
       max-width: none;
@@ -225,9 +232,6 @@
       background-color: #ffcc00 !important;
       border-color: #ff9900 !important;
       border-width: 2px !important;
-    }
-    .selected-row {
-      background-color: #cce6ff !important;
     }
     .corresponding-relation-highlight {
       background-color: #cce6ff !important;
@@ -326,8 +330,13 @@
     .ancestor-row td {
       background-color: #fffacd !important;
     }
-    .child-row {
-      background-color: #f9f9f9;
+    #table-wrapper tbody tr.child-row,
+    #table-wrapper tbody tr.child-row td {
+      background-color: #fff;
+    }
+    #table-wrapper tbody tr.selected-row,
+    #table-wrapper tbody tr.selected-row td {
+      background-color: #cce6ff !important;
     }
   </style>
 </head>
@@ -952,7 +961,7 @@
             tableRow.classList.add('selected-row');
             // Scroll to the selected row after a short delay to ensure table is rendered
             setTimeout(() => {
-              tableRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              tableRow.scrollIntoView({ behavior: 'auto', block: 'center' });
             }, 50);
           }
 
@@ -1230,7 +1239,7 @@
       return rowHTML;
     }
 
-    function showAlternativePaths(clickedPathId) {
+    function showAlternativePaths(clickedPathId, disableScroll = false) {
       const clickedPath = nodeMap.get(clickedPathId);
       if (!clickedPath) return;
 
@@ -1355,13 +1364,15 @@
       }
 
       // Highlight and scroll to the clicked path row in the table
-      const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${clickedPathId}"]`);
-      if (tableRow) {
-        tableRow.classList.add('selected-row');
-        // Scroll to the selected row after a short delay to ensure table is rendered
-        setTimeout(() => {
-          tableRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }, 50);
+      if (!disableScroll) {
+        const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${clickedPathId}"]`);
+        if (tableRow) {
+          tableRow.classList.add('selected-row');
+          // Scroll to the selected row after a short delay to ensure table is rendered
+          setTimeout(() => {
+            tableRow.scrollIntoView({ behavior: 'auto', block: 'center' });
+          }, 50);
+        }
       }
 
       // === Обработчики ===
@@ -1388,7 +1399,7 @@
               // Highlight the corresponding relation
               highlightCorrespondingRelation(clickedPathId);
             } else {
-              showAlternativePaths(clickedPathId); // Refresh current view
+              showAlternativePaths(clickedPathId, true); // Refresh current view
             }
           });
         });
@@ -1443,7 +1454,7 @@
           }
 
           // Перерисовать таблицу один раз после изменения
-          showAlternativePaths(clickedPathId);
+          showAlternativePaths(clickedPathId, true);
         });
       });
 
@@ -1553,9 +1564,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null, true);
           } else {
-            showAlternativePaths(clickedPathId);
+            showAlternativePaths(clickedPathId, true);
           }
 
           // Restore scroll position
@@ -1619,9 +1630,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null, true);
           } else {
-            showAlternativePaths(clickedPathId);
+            showAlternativePaths(clickedPathId, true);
           }
 
           // Restore scroll position
@@ -1648,13 +1659,6 @@
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
 
-            // Scroll to the selected path after a short delay to allow rendering
-            setTimeout(() => {
-              const selectedRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
-              if (selectedRow) {
-                selectedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }
-            }, 50);
           }
         });
       });
@@ -1713,7 +1717,8 @@
           // Выделение в таблице
           // Preserve the best-path-row class if this is a best path
           const isBestPath = bestPathIds.has(pathId);
-          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
+          const isChildRow = row.classList.contains('child-row');
+          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
 
 
           // Add to history
@@ -2193,13 +2198,6 @@
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
 
-            // Scroll to the selected path after a short delay to allow rendering
-            setTimeout(() => {
-              const selectedRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
-              if (selectedRow) {
-                selectedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }
-            }, 50);
           }
         });
       });
@@ -2258,7 +2256,8 @@
           // Выделение в таблице
           // Preserve the best-path-row class if this is a best path
           const isBestPath = bestPathIds.has(pathId);
-          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
+          const isChildRow = row.classList.contains('child-row');
+          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
 
 
           // Add to history
@@ -2534,7 +2533,7 @@
 
             // Show the appropriate table
             if (tableType === 'alternative-paths') {
-              showAlternativePaths(clickedPathId);
+              showAlternativePaths(clickedPathId, true);
             } else {
               showRelationsTable(clickedPathId); // Refresh current view
               // Highlight the corresponding relation
@@ -2829,7 +2828,7 @@
       });
     }
 
-    function showAlternativePathsForRelation(subqueryId, level, relId, relKey, clickedPathId = null) {
+    function showAlternativePathsForRelation(subqueryId, level, relId, relKey, clickedPathId = null, disableScroll = false) {
       // Get all paths that belong to this relation
       const alternatives = Array.from(nodeMap.values()).filter(p =>
         p.subquery_id === subqueryId && p.level === level && p.rel_id === relId
@@ -2953,12 +2952,12 @@
       }
 
       // Highlight the clicked path row in the table
-      if (clickedPathId) {
+      if (clickedPathId && !disableScroll) {
         const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${clickedPathId}"]`);
         if (tableRow) {
           tableRow.classList.add('selected-row');
           // Scroll to the selected row
-          tableRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          tableRow.scrollIntoView({ behavior: 'auto', block: 'center' });
         }
       }
 
@@ -2995,7 +2994,7 @@
               }
             } else {
               // For alternative paths table, show paths for this relation
-              showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey, null, true);
             }
           });
         });
@@ -3050,7 +3049,7 @@
           }
 
           // Перерисовать таблицу один раз после изменения
-          showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
+          showAlternativePathsForRelation(subqueryId, level, relId, relKey, null, true);
         });
       });
 
@@ -3160,9 +3159,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null, true);
           } else {
-            showAlternativePaths(clickedPathId);
+            showAlternativePaths(clickedPathId, true);
           }
 
           // Restore scroll position
@@ -3226,9 +3225,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null, true);
           } else {
-            showAlternativePaths(clickedPathId);
+            showAlternativePaths(clickedPathId, true);
           }
 
           // Restore scroll position
@@ -3255,13 +3254,6 @@
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
 
-            // Scroll to the selected path after a short delay to allow rendering
-            setTimeout(() => {
-              const selectedRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
-              if (selectedRow) {
-                selectedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }
-            }, 50);
           }
         });
       });
@@ -3320,7 +3312,8 @@
           // Выделение в таблице
           // Preserve the best-path-row class if this is a best path
           const isBestPath = bestPathIds.has(pathId);
-          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
+          const isChildRow = row.classList.contains('child-row');
+          row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '') + (isChildRow ? ' child-row' : '');
 
 
           // Add to history
@@ -4213,6 +4206,7 @@
         const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
         if (tableRow) {
           const isBestPath = bestPathIds.has(pathId);
+          const isChildRow = row.classList.contains('child-row');
           tableRow.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
         }
         
