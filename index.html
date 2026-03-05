@@ -1581,7 +1581,7 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
           } else {
             showAlternativePaths(currentSelectedPathId || clickedPathId);
           }
@@ -1647,7 +1647,7 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
           } else {
             showAlternativePaths(currentSelectedPathId || clickedPathId);
           }
@@ -2712,7 +2712,7 @@
               }
 
               // Show alternative paths for this relation
-              showAlternativePathsForRelation(subqueryId, level, relId, referencePath._relKey);
+              showAlternativePathsForRelation(subqueryId, level, relId, referencePath._relKey, currentSelectedPathId);
 
               // Find and select the first alternative path
               const alternatives = Array.from(nodeMap.values()).filter(p =>
@@ -2866,7 +2866,7 @@
       });
     }
 
-    function showAlternativePathsForRelation(subqueryId, level, relId, relKey) {
+    function showAlternativePathsForRelation(subqueryId, level, relId, relKey, clickedPathId = null) {
       // Get all paths that belong to this relation
       const alternatives = Array.from(nodeMap.values()).filter(p =>
         p.subquery_id === subqueryId && p.level === level && p.rel_id === relId
@@ -3022,7 +3022,7 @@
               }
             } else {
               // For alternative paths table, show paths for this relation
-              showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
             }
           });
         });
@@ -3077,7 +3077,7 @@
           }
 
           // Перерисовать таблицу один раз после изменения
-          showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+          showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
         });
       });
 
@@ -3187,7 +3187,7 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
           } else {
             showAlternativePaths(currentSelectedPathId || clickedPathId);
           }
@@ -3253,7 +3253,7 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
           } else {
             showAlternativePaths(currentSelectedPathId || clickedPathId);
           }
@@ -3621,7 +3621,7 @@
           const pct = Math.max(10, Math.min(90, (relativeX / containerRect.width) * 100)); // Ограничиваем диапазон от 10% до 90%
           const selectedPct = 100 - pct;
 
-          // Устанавливаем flex-basis для каждой панели
+          // Устанавлив��ем flex-basis для каждой панели
           bestPanel.style.flex = `0 0 ${pct}%`;
           selectedPanel.style.flex = `0 0 ${selectedPct}%`;
         }
@@ -4221,20 +4221,7 @@
               const subqueryId = clickedPath.subquery_id;
               const level = clickedPath.level;
               const relId = clickedPath.rel_id;
-              showAlternativePathsForRelation(subqueryId, level, relId, relKey);
-
-              // After the table is updated, highlight the clicked path row
-              setTimeout(() => {
-                const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${nodeId}"]`);
-                if (tableRow) {
-                  // Remove any existing selections in the table
-                  document.querySelectorAll('#table-wrapper tbody tr.selected-row').forEach(row => {
-                    row.classList.remove('selected-row');
-                  });
-                  // Add selection to the current row
-                  tableRow.classList.add('selected-row');
-                }
-              }, 10); // Small delay to ensure the table is rendered
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey, nodeId);
             }
           }
 
