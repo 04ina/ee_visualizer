@@ -86,77 +86,49 @@
       display: flex;
       flex: none;
       height: 40vh;
-      border-bottom: 1px solid #ddd;
     }
     #explain-best-container {
       flex: 1;
       padding: 10px;
       background: #f8f8f8;
       overflow: auto;
-      border-right: 1px solid #ddd;
       font-size: 13px;
       line-height: 1.4;
       white-space: pre-wrap;
       cursor: pointer;
     }
-    #explain-vertical-resizer {
-      width: 4px;
-      background: #ccc;
-      cursor: col-resize;
-      user-select: none;
-    }
-    #explain-selected-container {
-      flex: 1;
-      padding: 10px;
-      background: #f8f8f8;
-      overflow: auto;
-      font-size: 13px;
-      line-height: 1.4;
-      white-space: pre-wrap;
-      cursor: pointer;
-    }
-    #explain-best-container .path-line,
-    #explain-selected-container .path-line {
+    #explain-best-container .path-line {
       padding: 2px 0;
     }
-    #explain-best-container .path-line:hover,
-    #explain-selected-container .path-line:hover {
+    #explain-best-container .path-line:hover {
       background: #e0e0e0;
     }
-    #explain-best-container .selected,
-    #explain-selected-container .selected {
+    #explain-best-container .selected {
       background-color: #cce6ff !important;
     }
-    #explain-best-container .child-highlight,
-    #explain-selected-container .child-highlight {
+    #explain-best-container .child-highlight {
       background-color: #e3f3fd !important;
     }
-    #explain-best-container .subquery-alt-color,
-    #explain-selected-container .subquery-alt-color {
+    #explain-best-container .subquery-alt-color {
       background-color: #f0f0f0 !important; /* More subtle light blue */
     }
     /* Ensure selection highlights take precedence over subquery coloring */
-    #explain-best-container .selected,
-    #explain-selected-container .selected {
+    #explain-best-container .selected {
       background-color: #cce6ff !important;
       z-index: 10 !important;
     }
-    #explain-best-container .child-highlight,
-    #explain-selected-container .child-highlight {
+    #explain-best-container .child-highlight {
       background-color: #e3f3fd !important;
       z-index: 5 !important;
     }
     /* When both selected and subquery-alt-color are applied, selected takes priority */
-    #explain-best-container .selected.subquery-alt-color,
-    #explain-selected-container .selected.subquery-alt-color {
+    #explain-best-container .selected.subquery-alt-color {
       background-color: #cce6ff !important;
     }
-    #explain-best-container .child-highlight.subquery-alt-color,
-    #explain-selected-container .child-highlight.subquery-alt-color {
+    #explain-best-container .child-highlight.subquery-alt-color {
       background-color: #e3f3fd !important;
     }
-    #explain-best-container .section-header,
-    #explain-selected-container .section-header {
+    #explain-best-container .section-header {
       font-weight: bold;
       margin-top: 10px;
       margin-bottom: 5px;
@@ -390,8 +362,6 @@
     <div id="right-container">
       <div id="explain-split-container">
         <div id="explain-best-container">Лучший план (EXPLAIN)</div>
-        <div id="explain-vertical-resizer"></div>
-        <div id="explain-selected-container">Выбранный альтернативный путь (с дочерними узлами)</div>
       </div>
       <div id="horizontal-resizer"></div>
       <div id="empty-container">Кликните на строку в EXPLAIN, чтобы увидеть альтернативные пути.</div>
@@ -406,7 +376,6 @@
     let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters, relationFixateMap;
     let allBestRoots = [];
     let bestRelKeys = new Set();
-    let currentSelectedPathId = null;
     let bestPathIds = new Set();
     let bestSubqueryIds = new Set();
     let currentLayoutDirection = 'LR';
@@ -417,6 +386,9 @@
 
     // Track expanded paths in the alternative paths table
     let expandedTablePaths = new Set();
+
+    // Track current clicked path for copy buttons
+    let currentClickedPathId = null;
 
     function isPathVisible(pathIdStr) {
       const path = nodeMap.get(pathIdStr);
@@ -706,27 +678,6 @@
         animationDuration: 300,
         fit: true
       }).run();
-
-      if (currentSelectedPathId) {
-        cy.elements('.selected-in-tree').removeClass('selected-in-tree');
-        // Подсвечиваем заново
-        const path = nodeMap.get(currentSelectedPathId);
-        if (path) {
-          const idsToTry = [
-            currentSelectedPathId,
-            `relation-${path._relKey}`,
-            `level-${path._levelKey}`,
-            `subquery-${path._subKey}`
-          ];
-          for (const id of idsToTry) {
-            const el = cy.getElementById(id);
-            if (el.length > 0) {
-              el.addClass('selected-in-tree');
-              break;
-            }
-          }
-        }
-      }
     }
 
     function findAllBestPlans() {
@@ -973,8 +924,10 @@
 
           el.classList.add('selected');
           const pathId = el.getAttribute('data-path-id');
-          currentSelectedPathId = pathId;
-          
+
+          // Update current clicked path for copy buttons
+          currentClickedPathId = pathId;
+
           // Add to history
           addToHistory(pathId);
 
@@ -993,8 +946,17 @@
 
           highlightPathInTree(pathId);
 
+          // Highlight the corresponding row in the table
+          const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${pathId}"]`);
+          if (tableRow) {
+            tableRow.classList.add('selected-row');
+            // Scroll to the selected row after a short delay to ensure table is rendered
+            setTimeout(() => {
+              tableRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 50);
+          }
+
           // Also render the selected path with its children in the right panel
-          renderSelectedPathWithChildren(pathId);
         });
 
         el.addEventListener('dblclick', () => {
@@ -1177,7 +1139,7 @@
     // Helper function to render a single row with expand button
     function renderPathRow(p, displayedColumns, isParentRow = true, depth = 0, hasChildren = false, isExpanded = false, isExpandAll = false, isAncestor = false, isOriginalClickedPath = false) {
       const pathIdStr = String(p.path_id);
-      const isSelected = String(p.path_id) === currentSelectedPathId;
+      const isSelected = false;
       const isBestPath = bestPathIds.has(pathIdStr);
 
       let rowClass = '';
@@ -1392,6 +1354,16 @@
         document.getElementById('columns-dropdown').style.display = 'block';
       }
 
+      // Highlight and scroll to the clicked path row in the table
+      const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${clickedPathId}"]`);
+      if (tableRow) {
+        tableRow.classList.add('selected-row');
+        // Scroll to the selected row after a short delay to ensure table is rendered
+        setTimeout(() => {
+          tableRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
+      }
+
       // === Обработчики ===
       const dropdown = document.getElementById('columns-dropdown');
       const toggleBtn = document.getElementById('toggle-columns-btn');
@@ -1581,9 +1553,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
           } else {
-            showAlternativePaths(currentSelectedPathId || clickedPathId);
+            showAlternativePaths(clickedPathId);
           }
 
           // Restore scroll position
@@ -1647,9 +1619,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
           } else {
-            showAlternativePaths(currentSelectedPathId || clickedPathId);
+            showAlternativePaths(clickedPathId);
           }
 
           // Restore scroll position
@@ -1672,7 +1644,6 @@
           const path = nodeMap.get(String(pathId));
           if (path) {
             // Update selected path
-            currentSelectedPathId = pathId;
 
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
@@ -1704,7 +1675,6 @@
           const path = nodeMap.get(String(pathId));
           if (path) {
             // Update selected path
-            currentSelectedPathId = pathId;
 
             // Switch to alternative paths table for this path's relation and show ancestors
             showAlternativePathsWithAncestors(pathId);
@@ -1725,6 +1695,9 @@
           const pathId = row.getAttribute('data-path-id');
           if (!pathId) return;
 
+          // Update current clicked path for copy buttons
+          currentClickedPathId = pathId;
+
           // Сброс выделения в EXPLAIN и таблице
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
           document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
@@ -1742,11 +1715,10 @@
           const isBestPath = bestPathIds.has(pathId);
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
-          currentSelectedPathId = pathId;
-          
+
           // Add to history
           addToHistory(pathId);
-          
+
           highlightPathInTree(pathId);
 
           if (bestPathIds.has(pathId)) {
@@ -1763,7 +1735,6 @@
           } else {
             // For alternative paths table, behave as before
             // Also render the selected path with its children in the right panel
-            renderSelectedPathWithChildren(pathId);
           }
         });
 
@@ -2218,7 +2189,6 @@
           const path = nodeMap.get(String(pathId));
           if (path) {
             // Update selected path
-            currentSelectedPathId = pathId;
 
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
@@ -2250,7 +2220,6 @@
           const path = nodeMap.get(String(pathId));
           if (path) {
             // Update selected path
-            currentSelectedPathId = pathId;
 
             // Switch to alternative paths table for this path's relation and show ancestors
             showAlternativePathsWithAncestors(pathId);
@@ -2271,6 +2240,9 @@
           const pathId = row.getAttribute('data-path-id');
           if (!pathId) return;
 
+          // Update current clicked path for copy buttons
+          currentClickedPathId = pathId;
+
           // Сброс выделения в EXPLAIN и таблице
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
           document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
@@ -2288,7 +2260,6 @@
           const isBestPath = bestPathIds.has(pathId);
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
-          currentSelectedPathId = pathId;
 
           // Add to history
           addToHistory(pathId);
@@ -2309,7 +2280,6 @@
           } else {
             // For alternative paths table, behave as before
             // Also render the selected path with its children in the right panel
-            renderSelectedPathWithChildren(pathId);
           }
         });
 
@@ -2670,7 +2640,6 @@
           cy.elements('.selected-in-tree').removeClass('selected-in-tree');
 
           // Clear the current selected path
-          currentSelectedPathId = null;
 
           // Highlight the clicked relation row
           row.classList.add('selected-row');
@@ -2712,7 +2681,7 @@
               }
 
               // Show alternative paths for this relation
-              showAlternativePathsForRelation(subqueryId, level, relId, referencePath._relKey, currentSelectedPathId);
+              showAlternativePathsForRelation(subqueryId, level, relId, referencePath._relKey, null);
 
               // Find and select the first alternative path
               const alternatives = Array.from(nodeMap.values()).filter(p =>
@@ -2724,8 +2693,8 @@
                 const firstPath = alternatives[0];
                 const firstPathId = String(firstPath.path_id);
 
-                // Update the current selected path
-                currentSelectedPathId = firstPathId;
+                // Update the current clicked path for copy buttons
+                currentClickedPathId = firstPathId;
 
                 // Highlight the first path in the table after it's rendered
                 setTimeout(() => {
@@ -2750,7 +2719,6 @@
                 highlightPathInTree(firstPathId);
 
                 // Render the selected path with its children in the right panel
-                renderSelectedPathWithChildren(firstPathId);
 
                 // Highlight the relation node in the graph
                 const relationNodeId = `relation-${referencePath._relKey}`;
@@ -2812,11 +2780,6 @@
           }
         });
       });
-
-      // If there's a currently selected path, highlight its corresponding relation
-      if (currentSelectedPathId) {
-        highlightCorrespondingRelation(currentSelectedPathId);
-      }
     }
 
     function highlightPathInTree(pathId) {
@@ -2989,6 +2952,16 @@
         document.getElementById('columns-dropdown').style.display = 'block';
       }
 
+      // Highlight the clicked path row in the table
+      if (clickedPathId) {
+        const tableRow = document.querySelector(`#table-wrapper tbody tr[data-path-id="${clickedPathId}"]`);
+        if (tableRow) {
+          tableRow.classList.add('selected-row');
+          // Scroll to the selected row
+          tableRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
+
       // === Обработчики ===
       const dropdown = document.getElementById('columns-dropdown');
       const toggleBtn = document.getElementById('toggle-columns-btn');
@@ -3022,7 +2995,7 @@
               }
             } else {
               // For alternative paths table, show paths for this relation
-              showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
+              showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
             }
           });
         });
@@ -3077,7 +3050,7 @@
           }
 
           // Перерисовать таблицу один раз после изменения
-          showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
+          showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
         });
       });
 
@@ -3187,9 +3160,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
           } else {
-            showAlternativePaths(currentSelectedPathId || clickedPathId);
+            showAlternativePaths(clickedPathId);
           }
 
           // Restore scroll position
@@ -3253,9 +3226,9 @@
 
           // Re-render the table with the new expanded state
           if (typeof subqueryId !== 'undefined' && typeof level !== 'undefined' && typeof relId !== 'undefined') {
-            showAlternativePathsForRelation(subqueryId, level, relId, relKey, currentSelectedPathId);
+            showAlternativePathsForRelation(subqueryId, level, relId, relKey, null);
           } else {
-            showAlternativePaths(currentSelectedPathId || clickedPathId);
+            showAlternativePaths(clickedPathId);
           }
 
           // Restore scroll position
@@ -3278,7 +3251,6 @@
           const path = nodeMap.get(String(pathId));
           if (path) {
             // Update selected path
-            currentSelectedPathId = pathId;
 
             // Switch to alternative paths table for this path's relation
             showAlternativePaths(pathId);
@@ -3310,7 +3282,6 @@
           const path = nodeMap.get(String(pathId));
           if (path) {
             // Update selected path
-            currentSelectedPathId = pathId;
 
             // Switch to alternative paths table for this path's relation and show ancestors
             showAlternativePathsWithAncestors(pathId);
@@ -3331,6 +3302,9 @@
           const pathId = row.getAttribute('data-path-id');
           if (!pathId) return;
 
+          // Update current clicked path for copy buttons
+          currentClickedPathId = pathId;
+
           // Сброс выделения в EXPLAIN и таблице
           document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
           document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
@@ -3348,11 +3322,10 @@
           const isBestPath = bestPathIds.has(pathId);
           row.className = 'selected-row' + (isBestPath ? ' best-path-row' : '');
 
-          currentSelectedPathId = pathId;
-          
+
           // Add to history
           addToHistory(pathId);
-          
+
           highlightPathInTree(pathId);
 
           if (bestPathIds.has(pathId)) {
@@ -3369,7 +3342,6 @@
           } else {
             // For alternative paths table, behave as before
             // Also render the selected path with its children in the right panel
-            renderSelectedPathWithChildren(pathId);
           }
         });
 
@@ -3414,155 +3386,9 @@
       });
     }
 
-    function renderSelectedPathWithChildren(selectedPathId) {
-      const selectedPath = nodeMap.get(selectedPathId);
-      if (!selectedPath) {
-        document.getElementById('explain-selected-container').textContent = "Выбранный путь не найден.";
-        return;
-      }
-
-      const lines = [];
-
-      // Add header for the selected path
-      lines.push({ text: "Выбранный альтернативный путь", pathId: null });
-
-      // Track the previous subquery ID to determine when to alternate colors
-      let prevSubqueryId = null;
-      let shouldColor = false; // Start with not coloring
-
-      // Recursive function to collect all children of the selected path
-      const collectLines = (path, depth) => {
-        const idStr = String(path.path_id);
-        const indent = "  ".repeat(depth);
-
-        let line = `${indent}-> ${path.path_type}`;
-        if (path.rel_name && path.rel_name !== 'null' && path.rel_name !== '(null)') {
-          if (path.rel_alias && path.rel_alias !== path.rel_name && path.rel_alias !== 'null' && path.rel_alias !== '(null)') {
-            line += ` on ${path.rel_name} ${path.rel_alias}`;
-          } else {
-            line += ` on ${path.rel_name}`;
-          }
-        }
-        if (path.total_cost !== undefined) {
-          line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
-        }
-        
-        // Check if subquery ID has changed
-        if (prevSubqueryId !== null && path.subquery_id !== prevSubqueryId) {
-          // Subquery ID changed, toggle the color flag
-          shouldColor = !shouldColor;
-        }
-        // Update the previous subquery ID
-        prevSubqueryId = path.subquery_id;
-        
-        // Add the line with appropriate class based on coloring flag
-        lines.push({ 
-          text: line, 
-          pathId: idStr,
-          shouldColor: shouldColor
-        });
-
-        if (Array.isArray(path.child_paths)) {
-          for (const childId of path.child_paths) {
-            const child = nodeMap.get(String(childId));
-            if (child) {
-              collectLines(child, depth + 1);
-            }
-          }
-        }
-      };
-
-      // Start collecting from the selected path
-      collectLines(selectedPath, 0);
-
-      const selectedContainer = document.getElementById('explain-selected-container');
-      selectedContainer.innerHTML = lines.map(({ text, pathId, shouldColor }) => {
-        if (pathId) {
-          const colorClass = shouldColor ? 'subquery-alt-color' : '';
-          return `<div class="path-line ${colorClass}" data-path-id="${pathId}">${text}</div>`;
-        }
-        return `<div class="section-header">${text}</div>`;
-      }).join('');
-
-      // Add event listeners to the new path lines
-      selectedContainer.querySelectorAll('.path-line').forEach(el => {
-        el.addEventListener('click', () => {
-          document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
-          document.querySelectorAll('.path-line.child-highlight').forEach(e => e.classList.remove('child-highlight'));
-          document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
-          cy.elements('.selected-in-tree').removeClass('selected-in-tree');
-
-          el.classList.add('selected');
-          const pathId = el.getAttribute('data-path-id');
-          currentSelectedPathId = pathId;
-          
-          // Add to history
-          addToHistory(pathId);
-
-          highlightChildNodesInExplain(pathId);
-
-          // Check the current table type and update accordingly
-          if (currentTableType === 'relations') {
-            // Stay on relations table but update with new clicked path context
-            showRelationsTable(pathId);
-            // Highlight the corresponding relation
-            highlightCorrespondingRelation(pathId);
-          } else {
-            // For alternative paths table, behave as before
-            showAlternativePaths(pathId);
-          }
-
-          highlightPathInTree(pathId);
-
-          // Also render the selected path with its children in the right panel
-          renderSelectedPathWithChildren(pathId);
-        });
-
-        el.addEventListener('dblclick', () => {
-          const pathId = el.getAttribute('data-path-id');
-          if (pathId) {
-            const node = cy.getElementById(pathId);
-            if (node && node.length > 0) {
-              cy.animate({
-                center: {
-                  eles: node
-                },
-                zoom: 1.2,
-                duration: 500
-              });
-            } else {
-              const path = nodeMap.get(pathId);
-              if (path) {
-                const idsToTry = [
-                  `relation-${path._relKey}`,
-                  `level-${path._levelKey}`,
-                  `subquery-${path._subKey}`
-                ];
-
-                for (const id of idsToTry) {
-                  const containerNode = cy.getElementById(id);
-                  if (containerNode && containerNode.length > 0) {
-                    cy.animate({
-                      center: {
-                        eles: containerNode
-                      },
-                      zoom: 1.2,
-                      duration: 500
-                    });
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        });
-      });
-    }
-
     function makeResizable() {
       const vResizer = document.getElementById('vertical-resizer');
       const hResizer = document.getElementById('horizontal-resizer');
-      const explainVResizer = document.getElementById('explain-vertical-resizer');
       let resizing = null;
 
       // Вертикальный ресайзер (между деревом и правой панелью)
@@ -3574,12 +3400,6 @@
       // Горизонтальный ресайзер (между EXPLAIN и таблицей)
       hResizer.addEventListener('mousedown', e => {
         resizing = 'h';
-        e.preventDefault();
-      });
-
-      // Вертикальный ресайзер между двумя панелями EXPLAIN
-      explainVResizer.addEventListener('mousedown', e => {
-        resizing = 'ev'; // explain vertical
         e.preventDefault();
       });
 
@@ -3607,39 +3427,10 @@
           const newHeight = Math.max(100, Math.min(offsetY, rect.height - 100));
 
           explainSplitContainer.style.height = newHeight + 'px';
-        } else if (resizing === 'ev') {
-          // Вертикальное деление внутри панели EXPLAIN: Лучший план | Выбранный путь
-          const splitContainer = document.getElementById('explain-split-container');
-          const bestPanel = document.getElementById('explain-best-container');
-          const selectedPanel = document.getElementById('explain-selected-container');
-
-          // Получаем ширину контейнера
-          const containerRect = splitContainer.getBoundingClientRect();
-          const relativeX = e.clientX - containerRect.left;
-
-          // Рассчитываем проценты
-          const pct = Math.max(10, Math.min(90, (relativeX / containerRect.width) * 100)); // Ограничиваем диапазон от 10% до 90%
-          const selectedPct = 100 - pct;
-
-          // Устанавлив��ем flex-basis для каждой панели
-          bestPanel.style.flex = `0 0 ${pct}%`;
-          selectedPanel.style.flex = `0 0 ${selectedPct}%`;
         }
       });
 
       document.addEventListener('mouseup', () => {
-        if (resizing === 'ev') {
-          // Reset flex properties to allow for future resizing
-          const bestPanel = document.getElementById('explain-best-container');
-          const selectedPanel = document.getElementById('explain-selected-container');
-          // Keep the flex basis but allow growing/shrinking
-          const bestBasis = bestPanel.style.flexBasis;
-          const selectedBasis = selectedPanel.style.flexBasis;
-          if (bestBasis && selectedBasis) {
-            bestPanel.style.flex = `1 1 ${bestBasis}`;
-            selectedPanel.style.flex = `1 1 ${selectedBasis}`;
-          }
-        }
         resizing = null;
       });
     }
@@ -3763,7 +3554,6 @@
           expanded.clear();
 
           // Сбрасываем текущий выбор
-          currentSelectedPathId = null;
           cy.elements('.selected-in-tree, .highlighted, .highlighted-edge')
             .removeClass('selected-in-tree highlighted highlighted-edge');
 
@@ -3968,7 +3758,6 @@
           // Сбрасываем подсветку
           cy.elements('.highlighted, .highlighted-edge, .selected-in-tree')
             .removeClass('highlighted highlighted-edge selected-in-tree');
-          currentSelectedPathId = null;
           // Обновляем граф
           refreshGraph();
         });
@@ -3987,12 +3776,12 @@
         });
 
         document.getElementById('copy-selected-path').addEventListener('click', () => {
-          if (!currentSelectedPathId) {
-            alert('Сначала выберите альтернативный путь');
+          if (!currentClickedPathId) {
+            alert('Сначала выберите путь в таблице альтернативных путей');
             return;
           }
 
-          const selectedPath = nodeMap.get(currentSelectedPathId);
+          const selectedPath = nodeMap.get(currentClickedPathId);
           if (!selectedPath) {
             alert('Выбранный путь не найден');
             return;
@@ -4003,18 +3792,18 @@
           const level = selectedPath.level || 0;
           const subqueryId = selectedPath.subquery_id || 0;
           const pathType = selectedPath.path_type || "";
-          
+
           // Преобразовать стоимости в целые числа, умножив на 100 для сохранения дробной части
           let startupCost = selectedPath.startup_cost || 0;
           let totalCost = selectedPath.total_cost || 0;
-          
+
           // Убедиться, что стоимости являются числами и умножить на 100
           if (typeof startupCost === 'number') {
             startupCost = Math.round(startupCost * 100);
           } else {
             startupCost = Math.round(parseFloat(startupCost) * 100 || 0);
           }
-          
+
           if (typeof totalCost === 'number') {
             totalCost = Math.round(totalCost * 100);
           } else {
@@ -4050,12 +3839,12 @@
         });
 
         document.getElementById('copy-selected-relation').addEventListener('click', () => {
-          if (!currentSelectedPathId) {
-            alert('Сначала выберите альтернативный путь');
+          if (!currentClickedPathId) {
+            alert('Сначала выберите путь в таблице альтернативных путей');
             return;
           }
 
-          const selectedPath = nodeMap.get(currentSelectedPathId);
+          const selectedPath = nodeMap.get(currentClickedPathId);
           if (!selectedPath) {
             alert('Выбранный путь не найден');
             return;
@@ -4165,8 +3954,8 @@
           document.querySelectorAll('.selected-row').forEach(e => e.classList.remove('selected-row'));
           cy.elements('.selected-in-tree').removeClass('selected-in-tree');
 
-          // Update the current selected path
-          currentSelectedPathId = nodeId;
+          // Update the current clicked path for copy buttons
+          currentClickedPathId = nodeId;
 
           // Add to history
           addToHistory(nodeId);
@@ -4193,7 +3982,6 @@
           highlightChildNodesInExplain(nodeId);
 
           // Render the selected path with its children in the right panel
-          renderSelectedPathWithChildren(nodeId);
 
           // Show the alternative paths table for the selected path
           const clickedPath = nodeMap.get(nodeId);
@@ -4410,7 +4198,6 @@
         highlightChildNodesInExplain(pathId);
         
         // Update the current selected path
-        currentSelectedPathId = pathId;
         
         // Update EXPLAIN panel selection
         document.querySelectorAll('.path-line.selected').forEach(e => e.classList.remove('selected'));
@@ -4430,7 +4217,6 @@
         }
         
         // Render the selected path with its children
-        renderSelectedPathWithChildren(pathId);
         
         // Update the table if needed
         const clickedPath = nodeMap.get(pathId);
