@@ -1076,24 +1076,29 @@
     // Current active table type
     let currentTableType = 'alternative-paths'; // 'alternative-paths', 'relations'
 
-    // Helper function to collect all ancestor paths
-    function collectAncestorPaths(pathId) {
-      const path = nodeMap.get(String(pathId));
-      if (!path || !path.parent_path) {
-        return [];
-      }
+    // Track which path currently has ancestors shown
+    let currentAncestorPathId = null;
 
+    // Helper function to collect all ancestor paths
+    // Ancestors are paths that have this path in their child_paths (directly or indirectly)
+    // Returns only DIRECT parents (those that directly contain target in child_paths)
+    function collectAncestorPaths(targetPathId) {
       const result = [];
-      let currentPath = path;
-      while (currentPath && currentPath.parent_path) {
-        const parentPath = nodeMap.get(String(currentPath.parent_path));
-        if (parentPath) {
-          result.push({ path: parentPath });
-          currentPath = parentPath;
-        } else {
-          break;
+
+      // Search for all paths that have targetPathId DIRECTLY in their child_paths
+      for (const [id, path] of nodeMap.entries()) {
+        if (id === targetPathId) continue;
+
+        // Check if this path has our target directly in its child_paths
+        if (path.child_paths && path.child_paths.includes(parseInt(targetPathId))) {
+          result.push({ path: path, level: path.level });
         }
       }
+
+      // Sort by level (ascending - from root to parent)
+      result.sort((a, b) => a.level - b.level);
+
+      console.log('collectAncestorPaths for pathId:', targetPathId, 'found:', result.length, 'direct parents');
       return result;
     }
 
@@ -1160,9 +1165,10 @@
         expandButton = `<span class="expand-btn no-children"></span>`;
       }
 
-      // Navigate button (right arrow) - show for all rows
-      // For parent rows, it's disabled since we're already viewing their alternatives
-      if (isParentRow) {
+      // Navigate button (right arrow)
+      // Disabled only for parent rows (they already show their alternatives)
+      // Enabled for ancestor rows to show their alternatives
+      if (isParentRow && !isAncestor) {
         navigateButton = `<span class="expand-btn navigate-btn navigate-btn-disabled" title="Альтернативные пути уже отображаются">➡</span>`;
       } else {
         navigateButton = `<span class="expand-btn navigate-btn" data-path-id="${pathIdStr}" title="Показать альтернативные пути">➡</span>`;
@@ -1176,12 +1182,22 @@
         ancestorButton = `<span class="expand-btn ancestor-btn ancestor-btn-disabled" title="Нет вышестоящих путей">⬆</span>`;
       }
 
+      // Expand button - enabled for all rows with children
+      if (hasChildren) {
+        const symbol = isExpanded ? '−' : '+';
+        expandButton = `<span class="expand-btn" data-path-id="${pathIdStr}">${symbol}</span>`;
+        // Expand all button (down arrow) - only show for parent rows or when isExpandAll is true
+        if (isParentRow || isExpandAll) {
+          expandAllButton = `<span class="expand-btn expand-all-btn" data-path-id="${pathIdStr}" title="Развернуть все дочерние пути">⬇</span>`;
+        }
+      } else {
+        expandButton = `<span class="expand-btn no-children"></span>`;
+      }
+
       let rowHTML = `<tr data-path-id="${pathIdStr}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
 
       // First column: expand/collapse buttons
       rowHTML += `<td style="width: 90px; text-align: center;">${expandButton}${expandAllButton}${navigateButton}${ancestorButton}</td>`;
-
-      // Render all other cells
       for (let i = 0; i < displayedColumns.length; i++) {
         const col = displayedColumns[i];
         const val = p[col] !== undefined ? p[col] : '';
@@ -1766,7 +1782,16 @@
             // Update selected path
 
             // Switch to alternative paths table for this path's relation and show ancestors
-            showAlternativePathsWithAncestors(pathId);
+            // Toggle ancestors: if already showing for this path, hide them
+            if (currentAncestorPathId === pathId) {
+              currentAncestorPathId = null;
+              // Collapse the path before showing alternatives
+              expandedTablePaths.delete(pathId);
+              showAlternativePaths(pathId, true);
+            } else {
+              currentAncestorPathId = pathId;
+              showAlternativePathsWithAncestors(pathId);
+            }
           }
 
           // Restore scroll position
@@ -1874,7 +1899,7 @@
       const relKey = clickedPath._relKey;
       const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
 
-      // Collect ancestor paths
+      // Collect ancestor paths (parents)
       const ancestors = collectAncestorPaths(clickedPathId);
       const ancestorPathIds = new Set(ancestors.map(a => String(a.path.path_id)));
 
@@ -1957,22 +1982,26 @@
       });
       tableHTML += '</tr></thead><tbody>';
 
-      // Render ancestor paths first (in reverse order - from top to clicked path's parent)
-      for (let i = ancestors.length - 1; i >= 0; i--) {
-        const { path: ancestorPath } = ancestors[i];
-        const ancestorPathIdStr = String(ancestorPath.path_id);
-        const ancestorHasChildren = ancestorPath.child_paths && ancestorPath.child_paths.length > 0;
-        const ancestorIsExpanded = expandedTablePaths.has(ancestorPathIdStr);
-        tableHTML += renderPathRow(ancestorPath, displayedColumns, true, 0, ancestorHasChildren, ancestorIsExpanded, false, true, false);
-      }
-
-      // Render alternatives
+      // Render alternatives, inserting ancestors before the clicked path
       for (const p of alternatives) {
         const pathIdStr = String(p.path_id);
         const hasChildren = p.child_paths && p.child_paths.length > 0;
-        const isExpanded = expandedTablePaths.has(pathIdStr);
         const isAncestor = ancestorPathIds.has(pathIdStr);
         const isOriginalClickedPath = pathIdStr === String(clickedPathId);
+
+        // If this is the clicked path, render ancestors first (in reverse order - from top to parent)
+        if (isOriginalClickedPath && ancestors.length > 0) {
+          for (let i = ancestors.length - 1; i >= 0; i--) {
+            const { path: ancestorPath } = ancestors[i];
+            const ancestorPathIdStr = String(ancestorPath.path_id);
+            const ancestorHasChildren = ancestorPath.child_paths && ancestorPath.child_paths.length > 0;
+            const ancestorIsExpanded = expandedTablePaths.has(ancestorPathIdStr);
+            tableHTML += renderPathRow(ancestorPath, displayedColumns, true, 0, ancestorHasChildren, ancestorIsExpanded, false, false, false);
+          }
+        }
+
+        // Render paths normally (expanded state preserved)
+        const isExpanded = expandedTablePaths.has(pathIdStr);
         tableHTML += renderPathRow(p, displayedColumns, true, 0, hasChildren, isExpanded, false, isAncestor, isOriginalClickedPath);
       }
 
@@ -2400,7 +2429,16 @@
             // Update selected path
 
             // Switch to alternative paths table for this path's relation and show ancestors
-            showAlternativePathsWithAncestors(pathId);
+            // Toggle ancestors: if already showing for this path, hide them
+            if (currentAncestorPathId === pathId) {
+              currentAncestorPathId = null;
+              // Collapse the path before showing alternatives
+              expandedTablePaths.delete(pathId);
+              showAlternativePaths(pathId, true);
+            } else {
+              currentAncestorPathId = pathId;
+              showAlternativePathsWithAncestors(pathId);
+            }
           }
 
           // Restore scroll position
@@ -3551,7 +3589,16 @@
             // Update selected path
 
             // Switch to alternative paths table for this path's relation and show ancestors
-            showAlternativePathsWithAncestors(pathId);
+            // Toggle ancestors: if already showing for this path, hide them
+            if (currentAncestorPathId === pathId) {
+              currentAncestorPathId = null;
+              // Collapse the path before showing alternatives
+              expandedTablePaths.delete(pathId);
+              showAlternativePaths(pathId, true);
+            } else {
+              currentAncestorPathId = pathId;
+              showAlternativePathsWithAncestors(pathId);
+            }
           }
 
           // Restore scroll position
