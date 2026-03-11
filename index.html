@@ -1247,12 +1247,43 @@
       return rowHTML;
     }
 
+    // Helper function to collect all path IDs that have a parent in the same relation
+    // Only hides children for Gather and GatherMerge paths
+    function collectChildPathsInSameRelation(relKey) {
+      const childPathIds = new Set();
+
+      // Get all paths in this relation
+      const allPathsInRel = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
+
+      // For each path in this relation, collect its children that are also in the same relation
+      // Only hide children for Gather and GatherMerge paths
+      for (const path of allPathsInRel) {
+        if (path.child_paths && path.child_paths.length > 0) {
+          // Only process Gather and GatherMerge paths
+          if (path.path_type === 'Gather' || path.path_type === 'Gather Merge') {
+            for (const childId of path.child_paths) {
+              const childPath = nodeMap.get(String(childId));
+              // Only hide if child is also in the same relation
+              if (childPath && childPath._relKey === relKey) {
+                childPathIds.add(String(childId));
+              }
+            }
+          }
+        }
+      }
+
+      return childPathIds;
+    }
+
     function showAlternativePaths(clickedPathId, disableScroll = false) {
       const clickedPath = nodeMap.get(clickedPathId);
       if (!clickedPath) return;
 
       const relKey = clickedPath._relKey;
       const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
+      
+      // Collect all path IDs that have a parent in the same relation
+      const hiddenChildIds = collectChildPathsInSameRelation(relKey);
 
       const container = document.getElementById('empty-container');
       if (alternatives.length === 0) {
@@ -1334,8 +1365,13 @@
       tableHTML += '</tr></thead><tbody>';
 
       // Render rows with expand buttons
+      // Skip paths that are descendants of expanded parents in the same table
       for (const p of alternatives) {
         const pathIdStr = String(p.path_id);
+        // Skip this path if it's a descendant of an expanded parent in the same table
+        if (hiddenChildIds.has(pathIdStr)) {
+          continue;
+        }
         const hasChildren = p.child_paths && p.child_paths.length > 0;
         const isExpanded = expandedTablePaths.has(pathIdStr);
         const isOriginalClickedPath = pathIdStr === String(clickedPathId);
@@ -1903,6 +1939,9 @@
       const relKey = clickedPath._relKey;
       const alternatives = Array.from(nodeMap.values()).filter(p => p._relKey === relKey);
 
+      // Collect all path IDs that have a parent in the same relation
+      const hiddenChildIds = collectChildPathsInSameRelation(relKey);
+
       // Collect ancestor paths (parents)
       const ancestors = collectAncestorPaths(clickedPathId);
       const ancestorPathIds = new Set(ancestors.map(a => String(a.path.path_id)));
@@ -1987,8 +2026,13 @@
       tableHTML += '</tr></thead><tbody>';
 
       // Render alternatives, inserting ancestors before the clicked path
+      // Skip paths that have a parent in the same relation
       for (const p of alternatives) {
         const pathIdStr = String(p.path_id);
+        // Skip this path if it has a parent in the same relation
+        if (hiddenChildIds.has(pathIdStr)) {
+          continue;
+        }
         const hasChildren = p.child_paths && p.child_paths.length > 0;
         const isAncestor = ancestorPathIds.has(pathIdStr);
         const isOriginalClickedPath = pathIdStr === String(clickedPathId);
@@ -3054,6 +3098,9 @@
         p.subquery_id === subqueryId && p.level === level && p.rel_id === relId
       );
 
+      // Collect all path IDs that have a parent in the same relation
+      const hiddenChildIds = collectChildPathsInSameRelation(relKey);
+
       const container = document.getElementById('empty-container');
       if (alternatives.length === 0) {
         container.innerHTML = 'Альтернативные пути не найдены для выбранного отношения.';
@@ -3134,8 +3181,13 @@
       tableHTML += '</tr></thead><tbody>';
 
       // Render rows with expand buttons
+      // Skip paths that are descendants of expanded parents in the same table
       for (const p of alternatives) {
         const pathIdStr = String(p.path_id);
+        // Skip this path if it's a descendant of an expanded parent in the same table
+        if (hiddenChildIds.has(pathIdStr)) {
+          continue;
+        }
         const hasChildren = p.child_paths && p.child_paths.length > 0;
         const isExpanded = expandedTablePaths.has(pathIdStr);
         const isOriginalClickedPath = pathIdStr === String(clickedPathId);
