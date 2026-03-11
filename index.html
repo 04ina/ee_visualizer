@@ -273,7 +273,9 @@
       background: #e0e0e0;
     }
     .expand-btn.no-children {
-      visibility: hidden;
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
     }
     .expand-all-btn {
       font-size: 10px;
@@ -1162,7 +1164,8 @@
           expandAllButton = `<span class="expand-btn expand-all-btn" data-path-id="${pathIdStr}" title="Развернуть все дочерние пути">⬇</span>`;
         }
       } else {
-        expandButton = `<span class="expand-btn no-children"></span>`;
+        expandButton = `<span class="expand-btn no-children" title="Нет дочерних путей">+</span>`;
+        expandAllButton = `<span class="expand-btn expand-all-btn navigate-btn-disabled" title="Нет дочерних путей">⬇</span>`;
       }
 
       // Navigate button (right arrow)
@@ -1191,7 +1194,8 @@
           expandAllButton = `<span class="expand-btn expand-all-btn" data-path-id="${pathIdStr}" title="Развернуть все дочерние пути">⬇</span>`;
         }
       } else {
-        expandButton = `<span class="expand-btn no-children"></span>`;
+        expandButton = `<span class="expand-btn no-children" title="Нет дочерних путей">+</span>`;
+        expandAllButton = `<span class="expand-btn expand-all-btn navigate-btn-disabled" title="Нет дочерних путей">⬇</span>`;
       }
 
       let rowHTML = `<tr data-path-id="${pathIdStr}"${rowClass ? ' class="' + rowClass + '"' : ''}>`;
