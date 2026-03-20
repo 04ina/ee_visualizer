@@ -2038,14 +2038,21 @@
         const isOriginalClickedPath = pathIdStr === String(clickedPathId);
 
         // If this is the clicked path, render ancestors first (in reverse order - from top to parent)
+        // Ancestors are always collapsed (not expanded) to show only the ancestor chain
         if (isOriginalClickedPath && ancestors.length > 0) {
           for (let i = ancestors.length - 1; i >= 0; i--) {
             const { path: ancestorPath } = ancestors[i];
             const ancestorPathIdStr = String(ancestorPath.path_id);
             const ancestorHasChildren = ancestorPath.child_paths && ancestorPath.child_paths.length > 0;
-            const ancestorIsExpanded = expandedTablePaths.has(ancestorPathIdStr);
-            tableHTML += renderPathRow(ancestorPath, displayedColumns, true, 0, ancestorHasChildren, ancestorIsExpanded, false, false, false);
+            // Render ancestor row with isAncestor=true to apply yellow background
+            // Always set isExpanded=false to keep ancestors collapsed
+            tableHTML += renderPathRow(ancestorPath, displayedColumns, true, 0, ancestorHasChildren, false, false, true, false);
           }
+        }
+
+        // Skip rendering if this path is an ancestor (already rendered above)
+        if (isAncestor) {
+          continue;
         }
 
         // Render paths normally (expanded state preserved)
