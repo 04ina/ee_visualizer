@@ -356,7 +356,6 @@
     </div>
     <div class="toolbar-spacer"></div>
     <div class="toolbar-group">
-      <button id="clear-filters" class="toolbar-button">Сбросить фильтры</button>
       <button id="toggle-layout" class="toolbar-button">Повернуть layout</button>
     </div>
   </div>
@@ -379,7 +378,7 @@
   <script src="cytoscape-dagre.min.js"></script>
 
   <script>
-    let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFilters, relationFixateMap;
+    let cy, nodeMap, subqueryNodes, levelNodes, relationNodes, levelOrder, expanded, relationFixateMap;
     let allBestRoots = [];
     let bestRelKeys = new Set();
     let bestPathIds = new Set();
@@ -483,13 +482,11 @@
 
                 if (expanded.has(relItem.id)) {
                   const relKey = relItem.id.replace('relation-', '');
-                  const currentFilter = relationFilters.get(relItem.id) || '';
 
                   // Все пути в этом отношении
                   const relPaths = [];
                   for (const [pathIdStr, path] of nodeMap.entries()) {
                     if (path._relKey !== relKey) continue;
-                    if (currentFilter && path.path_type.toLowerCase().indexOf(currentFilter.toLowerCase()) === -1) continue;
                     relPaths.push({ id: pathIdStr, path });
                   }
 
@@ -512,7 +509,9 @@
                       for (const { id, path } of bestPaths) {
                         let label = `${path.path_type}\n(id:${path.path_id})`;
                         if (path.startup_cost !== undefined && path.total_cost !== undefined) {
-                          label += `\ncost: ${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)}`;
+                          const formatCost = (val) => isFinite(val) ? val.toFixed(2) : 'Infinity';
+
+                          label += `\ncost: ${formatCost(path.startup_cost)}..${formatCost(path.total_cost)}`;
                         }
                         if (path.rows !== undefined) {
                           label += `\nrows: ${Math.round(path.rows)}`;
@@ -588,10 +587,8 @@
                 });
 
                 if (expanded.has(relItem.id)) {
-                  const currentFilter = relationFilters.get(relItem.id) || '';
                   for (const [pathIdStr, path] of nodeMap.entries()) {
                     if (path._relKey !== relItem.id.replace('relation-', '')) continue;
-                    if (currentFilter && path.path_type.toLowerCase().indexOf(currentFilter.toLowerCase()) === -1) continue;
 
                     let label = `${path.path_type}\n(id:${path.path_id})`;
                     if (path.startup_cost !== undefined && path.total_cost !== undefined) {
@@ -604,7 +601,7 @@
                     // Determine if this path is fixed
                     const isFixed = path.fixate === "true";
                     const pathClasses = isFixed ? 'path-node fixed-path' : 'path-node';
-                    
+
                     nodes.push({
                       group: 'nodes',
                       data: { id: pathIdStr, label: label, parent: relItem.id },
@@ -819,7 +816,8 @@
               }
             }
             if (path.total_cost !== undefined) {
-              line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
+              const formatCost = (val) => isFinite(val) ? val.toFixed(2) : 'Infinity';
+              line += `  (cost=${formatCost(path.startup_cost)}..${formatCost(path.total_cost)} rows=${Math.round(path.rows)} width=${path.width})`;
             }
             
             // Check if subquery ID has changed
@@ -876,7 +874,8 @@
               }
             }
             if (path.total_cost !== undefined) {
-              line += `  (cost=${path.startup_cost.toFixed(2)}..${path.total_cost.toFixed(2)} rows=${Math.round(path.rows)} width=${path.width})`;
+              const formatCost = (val) => isFinite(val) ? val.toFixed(2) : 'Infinity';
+              line += `  (cost=${formatCost(path.startup_cost)}..${formatCost(path.total_cost)} rows=${Math.round(path.rows)} width=${path.width})`;
             }
             
             // Check if subquery ID has changed for CTEs
@@ -3829,7 +3828,6 @@
         relationNodes = new Map();
         levelOrder = new Map();
         expanded = new Map();
-        relationFilters = new Map();
         relationFixateMap = new Map(); // Map to store fixate status for each relation
 
         const queries = Object.values(data.queries);
@@ -4141,17 +4139,13 @@
           refreshGraph();
         });
 
-        document.getElementById('clear-filters').addEventListener('click', () => {
-          relationFilters.clear();
-          refreshGraph();
-        });
-
         document.getElementById('expand-best').addEventListener('click', () => {
           expandBestPlanOnly();
         });
+
         document.getElementById('toggle-layout').addEventListener('click', () => {
           currentLayoutDirection = currentLayoutDirection === 'LR' ? 'TB' : 'LR';
-          refreshGraph(); // перестроит граф с новым layout
+          refreshGraph();
         });
 
         document.getElementById('copy-selected-path').addEventListener('click', () => {
@@ -4271,10 +4265,8 @@
 
         cy.on('tap', 'node.relation-group', function (evt) {
           const id = evt.target.id();
-          const originalEvent = evt.originalEvent;
-          const isFilterMode = originalEvent.ctrlKey || originalEvent.metaKey;
 
-          // П��опускаем, если это групповой узел (best/other)
+          // Пропускаем, если это групповой узел (best/other)
           if (id.startsWith('best-rels-') || id.startsWith('other-rels-')) {
             if (expanded.has(id)) {
               expanded.delete(id);
@@ -4285,31 +4277,13 @@
             return;
           }
 
-          if (isFilterMode) {
-            const currentFilter = relationFilters.get(id) || '';
-            const newFilter = prompt(
-              'Фильтр по path_type (оставьте пустым для отключения):\n(например: SeqScan, IndexScan, NestLoop)',
-              currentFilter
-            );
-
-            if (newFilter !== null) {
-              const trimmed = newFilter.trim();
-              if (trimmed === '') {
-                relationFilters.delete(id);
-              } else {
-                relationFilters.set(id, trimmed);
-              }
-              refreshGraph();
-            }
+          // Toggle expansion for the relation node
+          if (expanded.has(id)) {
+            expanded.delete(id);
           } else {
-            // Toggle expansion for the relation node
-            if (expanded.has(id)) {
-              expanded.delete(id);
-            } else {
-              expanded.set(id, true);
-            }
-            refreshGraph();
+            expanded.set(id, true);
           }
+          refreshGraph();
         });
 
         function collectDescendants(nodeId, visited = new Set()) {
